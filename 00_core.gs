@@ -19,33 +19,25 @@ const CAFCO_SLOTS = [
 function onOpen() {
   const ui = SpreadsheetApp.getUi();
 
-  const generation = ui.createMenu('Génération')
-    .addItem('Générer un mois', 'genererMoisDepuisModele')
-    .addItem('Appliquer SEMAINE_TYPE à une semaine', 'appliquerSemaineTypeUneSemaine');
+  const planning = ui.createMenu('Planning')
+    .addItem('Créer ou réinitialiser un mois', 'genererMoisDepuisModele')
+    .addItem('Copier la semaine type', 'appliquerSemaineTypeUneSemaine');
 
   const controle = ui.createMenu('Contrôle')
-    .addItem('Recalculer les tickets d’un mois', 'recalculerTicketsMois')
-    .addItem('Vérifier contrôle qualité', 'verifierControleQualite')
-    .addItem('Corriger tickets > 3 / doublons', 'corrigerTicketsMaxSemaine');
+    .addItem('Vérifier le planning', 'verifierControleQualite')
+    .addItem('Forcer le recalcul des tickets', 'recalculerTicketsMois');
 
-  const maintenance = ui.createMenu('Maintenance')
+  const maintenance = ui.createMenu('Maintenance avancée')
     .addItem('Réparer les formules Ticket', 'reparerFormulesTickets')
-    .addItem('Réparer toutes les formules', 'reparerToutesLesFormules')
-    .addItem('Protéger les tickets d’un mois', 'protegerTicketsMoisExistant');
-
-  const sauvegarde = ui.createMenu('Sauvegarde')
-    .addItem('Sauvegarder les formules de référence', 'sauvegarderFormulesReference');
-
-  const tests = ui.createMenu('Tests')
-    .addItem('Tester la logique Tickets', 'testerLogiqueTickets')
+    .addItem('Sauvegarder les formules', 'sauvegarderFormulesReference')
+    .addItem('Restaurer toutes les formules', 'reparerToutesLesFormules')
+    .addItem('Protéger les colonnes Ticket', 'protegerTicketsMoisExistant')
     .addItem('Auditer la structure du classeur', 'auditerStructureClasseur');
 
   ui.createMenu('Café&Co')
-    .addSubMenu(generation)
+    .addSubMenu(planning)
     .addSubMenu(controle)
     .addSubMenu(maintenance)
-    .addSubMenu(sauvegarde)
-    .addSubMenu(tests)
     .addToUi();
 }
 
