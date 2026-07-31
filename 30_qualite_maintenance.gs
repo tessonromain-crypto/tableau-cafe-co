@@ -88,88 +88,95 @@ function verifierControleQualite_(afficherAlerte) {
   return resultats;
 }
 
+function estFeuilleExclueSauvegarde_(nom) {
+  const exactes = ['_CHANGELOG', '_DOC_SCRIPT', '_DOC_FORMULES', '_PARAMETRES'];
+  return exactes.indexOf(nom) !== -1 ||
+    nom.indexOf('_TICKETS_') === 0 ||
+    nom.indexOf('_BACKUP_') === 0 ||
+    nom.indexOf('_FORMULES_BACKUP') === 0;
+}
+
+function contientErreurFormule_(valeurAffichee) {
+  const texte = String(valeurAffichee || '').toUpperCase();
+  const marqueurs = [
+    '#REF!', '#N/A', '#VALUE!', '#VALEUR!', '#DIV/0!', '#NAME?', '#NOM?',
+    '#NUM!', '#NOMBRE!', '#NULL!', '#ERREUR!', '#ERROR!'
+  ];
+  return marqueurs.some(function(marqueur) { return texte.indexOf(marqueur) !== -1; });
+}
+
 function sauvegarderFormulesReference() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const ui = SpreadsheetApp.getUi();
-  const choix = ui.alert('Sauvegarder les formules', 'La sauvegarde actuelle sera remplacée. Continuer ?', ui.ButtonSet.YES_NO);
-  if (choix !== ui.Button.YES) return;
-
-  let backup = ss.getSheetByName('_FORMULES_BACKUP');
-  if (!backup) backup = ss.insertSheet('_FORMULES_BACKUP');
-  backup.clearContents();
-
-  const exclues = ['_FORMULES_BACKUP', '_CHANGELOG', '_DOC_SCRIPT', '_DOC_FORMULES', '_PARAMETRES'];
   const sauvegarde = [['Feuille', 'Cellule', 'Formule']];
+  const erreurs = [];
 
   ss.getSheets().forEach(function(sh) {
     const nom = sh.getName();
-    if (exclues.indexOf(nom) !== -1 || nom.indexOf('_TICKETS_') === 0 || nom.indexOf('_BACKUP_') === 0) return;
+    if (estFeuilleExclueSauvegarde_(nom)) return;
+
     const range = sh.getDataRange();
     const formulas = range.getFormulas();
+    const displays = range.getDisplayValues();
+
     for (let r = 0; r < formulas.length; r++) {
       for (let c = 0; c < formulas[r].length; c++) {
-        if (formulas[r][c]) sauvegarde.push([nom, range.getCell(r + 1, c + 1).getA1Notation(), formulas[r][c]]);
+        const formule = formulas[r][c];
+        if (!formule) continue;
+        const cellule = range.getCell(r + 1, c + 1).getA1Notation();
+        if (contientErreurFormule_(displays[r][c])) {
+          erreurs.push(nom + '!' + cellule + ' = ' + displays[r][c]);
+        }
+        sauvegarde.push([nom, cellule, formule]);
       }
     }
   });
 
-  if (backup.getMaxRows() < sauvegarde.length) backup.insertRowsAfter(backup.getMaxRows(), sauvegarde.length - backup.getMaxRows());
-  backup.getRange(1, 1, sauvegarde.length, 3).setValues(sauvegarde);
-  journaliser_('Sauvegarde formules', (sauvegarde.length - 1) + ' formule(s) sauvegardée(s)');
-  ui.alert((sauvegarde.length - 1) + ' formule(s) sauvegardée(s).');
-}
-
-function reparerToutesLesFormules() {
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
-  const ui = SpreadsheetApp.getUi();
-  const backup = ss.getSheetByName('_FORMULES_BACKUP');
-  if (!backup || backup.getLastRow() < 2) {
-    ui.alert('Aucune sauvegarde de formules disponible.');
+  if (erreurs.length) {
+    const apercu = erreurs.slice(0, 15).join('\n');
+    const suite = erreurs.length > 15 ? '\n… et ' + (erreurs.length - 15) + ' autre(s).' : '';
+    journaliser_('Sauvegarde formules refusée', erreurs.length + ' formule(s) en erreur');
+    ui.alert(
+      'Sauvegarde refusée',
+      'Le classeur contient ' + erreurs.length + ' formule(s) en erreur. Corrige-les avant de créer une sauvegarde.\n\n' + apercu + suite,
+      ui.ButtonSet.OK
+    );
     return;
   }
 
-  const choix = ui.alert('Réparer toutes les formules', 'Les formules sauvegardées seront restaurées. Continuer ?', ui.ButtonSet.YES_NO);
+  const base = '_FORMULES_BACKUP_' + Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyyMMdd_HHmmss');
+  let nomBackup = base;
+  let suffixe = 2;
+  while (ss.getSheetByName(nomBackup)) {
+    nomBackup = base + '_' + suffixe;
+    suffixe++;
+  }
+
+  const choix = ui.alert(
+    'Créer une sauvegarde des formules',
+    'Une nouvelle feuille cachée sera créée sans écraser les sauvegardes existantes :\n\n' + nomBackup + '\n\nFormules à sauvegarder : ' + (sauvegarde.length - 1) + '\n\nContinuer ?',
+    ui.ButtonSet.YES_NO
+  );
   if (choix !== ui.Button.YES) return;
 
-  const data = backup.getRange(2, 1, backup.getLastRow() - 1, 3).getValues();
-  const parFeuille = {};
-  data.forEach(function(l) {
-    const nom = String(l[0] || '');
-    if (!nom || !l[1] || !l[2]) return;
-    if (!parFeuille[nom]) parFeuille[nom] = [];
-    parFeuille[nom].push({ cellule: l[1], formule: l[2] });
-  });
+  const backup = ss.insertSheet(nomBackup);
+  if (backup.getMaxRows() < sauvegarde.length) {
+    backup.insertRowsAfter(backup.getMaxRows(), sauvegarde.length - backup.getMaxRows());
+  }
+  backup.getRange(1, 1, sauvegarde.length, 3).setValues(sauvegarde);
+  backup.hideSheet();
 
-  let restaurees = 0;
-  let erreurs = 0;
-  Object.keys(parFeuille).forEach(function(nom) {
-    const sh = ss.getSheetByName(nom);
-    if (!sh) {
-      erreurs += parFeuille[nom].length;
-      return;
-    }
-    parFeuille[nom].forEach(function(item) {
-      try {
-        sh.getRange(item.cellule).setFormula(item.formule);
-        restaurees++;
-      } catch (err) {
-        erreurs++;
-      }
-    });
-  });
+  journaliser_('Sauvegarde formules', nomBackup + ' : ' + (sauvegarde.length - 1) + ' formule(s)');
+  ui.alert('Sauvegarde créée : ' + nomBackup + '\n\n' + (sauvegarde.length - 1) + ' formule(s) sauvegardée(s).');
+}
 
-  // Les colonnes Ticket utilisent désormais un calcul sécurisé séparé.
-  CAFCO_MOIS.forEach(function(nom) {
-    const sh = ss.getSheetByName(nom);
-    if (sh) {
-      installerFormulesTicketsPourFeuille_(sh);
-      recalculerTicketsFeuille_(sh);
-    }
-  });
-
-  SpreadsheetApp.flush();
-  journaliser_('Réparation formules', restaurees + ' restaurée(s), ' + erreurs + ' erreur(s)');
-  ui.alert('Réparation terminée.\n\nFormules restaurées : ' + restaurees + '\nErreurs : ' + erreurs);
+function reparerToutesLesFormules() {
+  journaliser_('Réparation globale bloquée', 'Fonction désactivée pour éviter les #REF!');
+  SpreadsheetApp.getUi().alert(
+    'Fonction désactivée',
+    'La restauration globale des formules est désactivée pour sécurité. Les tests ont montré qu’elle pouvait générer des erreurs et des #REF!.\n\nUtilise uniquement « Réparer les formules Ticket de tous les mois » pour les colonnes Ticket.',
+    SpreadsheetApp.getUi().ButtonSet.OK
+  );
 }
 
 function auditerStructureClasseur() {
@@ -191,12 +198,18 @@ function auditerStructureClasseur() {
   CAFCO_MOIS.forEach(function(nom) {
     const sh = ss.getSheetByName(nom);
     if (!sh) return;
-    if (sh.getMaxColumns() < 26) anomalies.push(nom + ' : moins de 26 colonnes');
+    if (sh.getMaxColumns() < 26) {
+      anomalies.push(nom + ' : moins de 26 colonnes');
+      return;
+    }
     CAFCO_SLOTS.forEach(function(slot) {
-      if (sh.getRange(1, slot.ticketCol).getDisplayValue() !== 'Ticket') anomalies.push(nom + ' : en-tête Ticket incorrect colonne ' + slot.ticketCol);
+      if (sh.getRange(1, slot.ticketCol).getDisplayValue() !== 'Ticket') {
+        anomalies.push(nom + ' : en-tête Ticket incorrect colonne ' + slot.ticketCol);
+      }
     });
   });
 
+  journaliser_('Audit structure', anomalies.length + ' anomalie(s)');
   ui.alert(anomalies.length ? 'Audit : ' + anomalies.length + ' anomalie(s)\n\n' + anomalies.join('\n') : 'Audit structure : aucun problème détecté.');
   return anomalies;
 }
