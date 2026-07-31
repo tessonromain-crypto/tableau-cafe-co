@@ -24,18 +24,19 @@ function onOpen() {
     .addItem('Copier la semaine type', 'appliquerSemaineTypeUneSemaine');
 
   const controle = ui.createMenu('Contrôle')
-    .addItem('Vérifier le planning', 'verifierControleQualite')
-    .addItem('Forcer le recalcul des tickets', 'recalculerTicketsMois');
+    .addItem('Recalculer les tickets', 'recalculerTicketsMois')
+    .addItem('Vérifier le contrôle qualité', 'verifierControleQualite');
 
-  const depannage = ui.createMenu('Dépannage')
-    .addItem('Réparer et recalculer les tickets', 'reparerFormulesTickets')
-    .addItem('Protéger les colonnes Ticket', 'protegerTicketsMoisExistant')
-    .addItem('Auditer la structure du classeur', 'auditerStructureClasseur');
+  const maintenance = ui.createMenu('Maintenance et tests')
+    .addItem('Réparer les formules Ticket de tous les mois', 'reparerFormulesTickets')
+    .addItem('Protéger les tickets', 'protegerTicketsMoisExistant')
+    .addItem('Tester la logique Tickets', 'testerLogiqueTickets')
+    .addItem('Auditer la structure', 'auditerStructureClasseur');
 
   ui.createMenu('Café&Co')
     .addSubMenu(planning)
     .addSubMenu(controle)
-    .addSubMenu(depannage)
+    .addSubMenu(maintenance)
     .addToUi();
 }
 
@@ -98,8 +99,6 @@ function journaliser_(action, detail) {
 }
 
 function forcerRecalculSyntheses_() {
-  // Google Sheets recalcule les formules automatiquement. Réécrire chaque formule
-  // une par une est lent et risqué. Un flush suffit à pousser les écritures en attente.
   SpreadsheetApp.flush();
 }
 
