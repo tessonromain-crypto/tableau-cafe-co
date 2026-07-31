@@ -27,17 +27,15 @@ function onOpen() {
     .addItem('Vérifier le planning', 'verifierControleQualite')
     .addItem('Forcer le recalcul des tickets', 'recalculerTicketsMois');
 
-  const maintenance = ui.createMenu('Maintenance avancée')
-    .addItem('Réparer les formules Ticket', 'reparerFormulesTickets')
-    .addItem('Sauvegarder les formules', 'sauvegarderFormulesReference')
-    .addItem('Restaurer toutes les formules', 'reparerToutesLesFormules')
+  const depannage = ui.createMenu('Dépannage')
+    .addItem('Réparer et recalculer les tickets', 'reparerFormulesTickets')
     .addItem('Protéger les colonnes Ticket', 'protegerTicketsMoisExistant')
     .addItem('Auditer la structure du classeur', 'auditerStructureClasseur');
 
   ui.createMenu('Café&Co')
     .addSubMenu(planning)
     .addSubMenu(controle)
-    .addSubMenu(maintenance)
+    .addSubMenu(depannage)
     .addToUi();
 }
 
