@@ -117,18 +117,21 @@ function recalculerTicketsFeuille_(sheet) {
 }
 
 function installerFormulesTicketsPourFeuille_(sheet) {
-  if (!sheet || !estFeuilleMois_(sheet.getName())) return;
+  if (!sheet || !estFeuilleMois_(sheet.getName())) return 0;
   const lastRow = Math.max(sheet.getLastRow(), 2);
   obtenirFeuilleTicketsCalcul_(sheet.getName());
+  let nbFormules = 0;
 
   CAFCO_SLOTS.forEach(function(slot) {
     const formules = [];
     const nomLedger = nomFeuilleTicketsCalcul_(sheet.getName()).replace(/'/g, "''");
     for (let r = 2; r <= lastRow; r++) {
-      formules.push(["=IFERROR('" + nomLedger + "'!" + sheet.getRange(r, slot.ticketCol).getA1Notation() + ';\"\")']);
+      formules.push(["=IFERROR('" + nomLedger + "'!" + sheet.getRange(r, slot.ticketCol).getA1Notation() + ';\"\")"]);
     }
     sheet.getRange(2, slot.ticketCol, formules.length, 1).setFormulas(formules);
+    nbFormules += formules.length;
   });
+  return nbFormules;
 }
 
 function recalculerTicketsMois() {
@@ -152,23 +155,59 @@ function recalculerTicketsMois() {
 }
 
 function corrigerTicketsMaxSemaine() {
-  // Compatibilité avec l’ancien menu : le nouveau recalcul corrige à la fois
-  // le plafond hebdomadaire et les doublons de demi-journée sans détruire les formules.
+  // Compatibilité avec d'anciens déclencheurs éventuels.
+  // Cette fonction ne doit plus apparaître dans le menu.
   recalculerTicketsMois();
 }
 
 function reparerFormulesTickets() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const ui = SpreadsheetApp.getUi();
+  const choix = ui.alert(
+    'Réparer les tickets de tous les mois',
+    'Cette action corrigera les en-têtes Ticket, réinstallera les formules, recalculera les tickets et remettra les protections sur tous les mois existants. Continuer ?',
+    ui.ButtonSet.YES_NO
+  );
+  if (choix !== ui.Button.YES) return;
+
   let feuilles = 0;
+  let formules = 0;
+  let entetesCorriges = 0;
+
   CAFCO_MOIS.forEach(function(nom) {
     const sh = ss.getSheetByName(nom);
     if (!sh) return;
-    installerFormulesTicketsPourFeuille_(sh);
+
+    if (sh.getMaxColumns() < 26) {
+      sh.insertColumnsAfter(sh.getMaxColumns(), 26 - sh.getMaxColumns());
+    }
+
+    CAFCO_SLOTS.forEach(function(slot) {
+      const celluleEntete = sh.getRange(1, slot.ticketCol);
+      if (celluleEntete.getDisplayValue() !== 'Ticket') {
+        celluleEntete.setValue('Ticket');
+        entetesCorriges++;
+      }
+    });
+
+    formules += installerFormulesTicketsPourFeuille_(sh);
     recalculerTicketsFeuille_(sh);
+    protegerFormulesTickets_(sh);
     feuilles++;
   });
-  journaliser_('Réparation formules Ticket', feuilles + ' feuille(s) réparée(s)');
-  SpreadsheetApp.getUi().alert('Formules Ticket réparées sur ' + feuilles + ' feuille(s).');
+
+  verifierControleQualite_(false);
+  SpreadsheetApp.flush();
+  journaliser_(
+    'Réparation formules Ticket',
+    feuilles + ' feuille(s), ' + formules + ' formule(s), ' + entetesCorriges + ' en-tête(s) corrigé(s)'
+  );
+  ui.alert(
+    'Réparation terminée.\n\n' +
+    'Mois traités : ' + feuilles + '\n' +
+    'Formules réinstallées : ' + formules + '\n' +
+    'En-têtes corrigés : ' + entetesCorriges
+  );
 }
 
 function protegerFormulesTickets_(sheet) {
@@ -200,6 +239,7 @@ function protegerTicketsMoisExistant() {
     return;
   }
   protegerFormulesTickets_(sh);
+  journaliser_('Protection tickets', nom + ' : colonnes Ticket protégées');
   ui.alert('Colonnes Ticket protégées contre les modifications accidentelles.');
 }
 
