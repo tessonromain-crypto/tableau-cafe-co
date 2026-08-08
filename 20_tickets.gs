@@ -94,13 +94,13 @@ function lireInfosBenevoles_() {
   return infos;
 }
 
-function recalculerTicketsFeuille_(sheet) {
+function recalculerTicketsFeuille_(sheet, infosBenevoles) {
   if (!sheet || !estFeuilleMois_(sheet.getName())) return null;
   const lastRow = sheet.getLastRow();
   if (lastRow < 2) return { oui: 0, non: 0, vides: 0, doublons: 0 };
 
   const planning = sheet.getRange(2, 1, lastRow - 1, 26).getValues();
-  const calcul = calculerTickets_(planning, lireInfosBenevoles_());
+  const calcul = calculerTickets_(planning, infosBenevoles || lireInfosBenevoles_());
   const ledger = obtenirFeuilleTicketsCalcul_(sheet.getName());
 
   if (ledger.getMaxRows() < lastRow) ledger.insertRowsAfter(ledger.getMaxRows(), lastRow - ledger.getMaxRows());
@@ -173,6 +173,7 @@ function reparerFormulesTickets() {
   let feuilles = 0;
   let formules = 0;
   let entetesCorriges = 0;
+  const infosBenevoles = lireInfosBenevoles_();
 
   CAFCO_MOIS.forEach(function(nom) {
     const sh = ss.getSheetByName(nom);
@@ -191,7 +192,7 @@ function reparerFormulesTickets() {
     });
 
     formules += installerFormulesTicketsPourFeuille_(sh);
-    recalculerTicketsFeuille_(sh);
+    recalculerTicketsFeuille_(sh, infosBenevoles);
     protegerFormulesTickets_(sh);
     feuilles++;
   });
@@ -214,16 +215,38 @@ function protegerFormulesTickets_(sheet) {
   if (!sheet) throw new Error('Feuille à protéger introuvable.');
   const prefix = 'CAFCO_TICKETS_';
   const protections = sheet.getProtections(SpreadsheetApp.ProtectionType.RANGE);
+  const protectionsTickets = {};
   protections.forEach(function(p) {
-    if ((p.getDescription() || '').indexOf(prefix) === 0 && p.canEdit()) p.remove();
+    const description = p.getDescription() || '';
+    if (description.indexOf(prefix) !== 0) return;
+    if (!protectionsTickets[description]) protectionsTickets[description] = [];
+    protectionsTickets[description].push(p);
   });
 
   const lastRow = Math.max(sheet.getLastRow(), 2);
   CAFCO_SLOTS.forEach(function(slot) {
-    sheet.getRange(2, slot.ticketCol, lastRow - 1, 1)
-      .protect()
-      .setDescription(prefix + sheet.getName() + '_COL_' + slot.ticketCol)
-      .setWarningOnly(true);
+    const range = sheet.getRange(2, slot.ticketCol, lastRow - 1, 1);
+    const description = prefix + sheet.getName() + '_COL_' + slot.ticketCol;
+    const existantes = protectionsTickets[description] || [];
+    let protection = existantes.shift();
+
+    if (!protection) {
+      protection = range.protect().setDescription(description);
+    } else if (protection.getRange().getA1Notation() !== range.getA1Notation()) {
+      protection.setRange(range);
+    }
+    if (!protection.isWarningOnly()) protection.setWarningOnly(true);
+
+    existantes.forEach(function(doublon) {
+      if (doublon.canEdit()) doublon.remove();
+    });
+    delete protectionsTickets[description];
+  });
+
+  Object.keys(protectionsTickets).forEach(function(description) {
+    protectionsTickets[description].forEach(function(p) {
+      if (p.canEdit()) p.remove();
+    });
   });
 }
 
