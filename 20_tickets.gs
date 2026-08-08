@@ -126,7 +126,7 @@ function installerFormulesTicketsPourFeuille_(sheet) {
     const formules = [];
     const nomLedger = nomFeuilleTicketsCalcul_(sheet.getName()).replace(/'/g, "''");
     for (let r = 2; r <= lastRow; r++) {
-      formules.push(["=IFERROR('" + nomLedger + "'!" + sheet.getRange(r, slot.ticketCol).getA1Notation() + ';\"\")"]);
+      formules.push(["=IFERROR('" + nomLedger + "'!" + sheet.getRange(r, slot.ticketCol).getA1Notation() + ';"")']);
     }
     sheet.getRange(2, slot.ticketCol, formules.length, 1).setFormulas(formules);
     nbFormules += formules.length;
