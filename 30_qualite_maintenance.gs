@@ -107,7 +107,6 @@ function contientErreurFormule_(valeurAffichee) {
 
 function sauvegarderFormulesReference() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
-  const ui = SpreadsheetApp.getUi();
   const sauvegarde = [['Feuille', 'Cellule', 'Formule']];
   const erreurs = [];
 
@@ -136,12 +135,10 @@ function sauvegarderFormulesReference() {
     const apercu = erreurs.slice(0, 15).join('\n');
     const suite = erreurs.length > 15 ? '\n… et ' + (erreurs.length - 15) + ' autre(s).' : '';
     journaliser_('Sauvegarde formules refusée', erreurs.length + ' formule(s) en erreur');
-    ui.alert(
-      'Sauvegarde refusée',
-      'Le classeur contient ' + erreurs.length + ' formule(s) en erreur. Corrige-les avant de créer une sauvegarde.\n\n' + apercu + suite,
-      ui.ButtonSet.OK
+    throw new Error(
+      'Sauvegarde refusée : le classeur contient ' + erreurs.length +
+      ' formule(s) en erreur. Corrige-les avant de créer une sauvegarde.\n\n' + apercu + suite
     );
-    return;
   }
 
   const base = '_FORMULES_BACKUP_' + Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyyMMdd_HHmmss');
@@ -152,13 +149,6 @@ function sauvegarderFormulesReference() {
     suffixe++;
   }
 
-  const choix = ui.alert(
-    'Créer une sauvegarde des formules',
-    'Une nouvelle feuille cachée sera créée sans écraser les sauvegardes existantes :\n\n' + nomBackup + '\n\nFormules à sauvegarder : ' + (sauvegarde.length - 1) + '\n\nContinuer ?',
-    ui.ButtonSet.YES_NO
-  );
-  if (choix !== ui.Button.YES) return;
-
   const backup = ss.insertSheet(nomBackup);
   if (backup.getMaxRows() < sauvegarde.length) {
     backup.insertRowsAfter(backup.getMaxRows(), sauvegarde.length - backup.getMaxRows());
@@ -167,7 +157,8 @@ function sauvegarderFormulesReference() {
   backup.hideSheet();
 
   journaliser_('Sauvegarde formules', nomBackup + ' : ' + (sauvegarde.length - 1) + ' formule(s)');
-  ui.alert('Sauvegarde créée : ' + nomBackup + '\n\n' + (sauvegarde.length - 1) + ' formule(s) sauvegardée(s).');
+  Logger.log('Sauvegarde créée : ' + nomBackup + ' — ' + (sauvegarde.length - 1) + ' formule(s).');
+  return { feuille: nomBackup, formules: sauvegarde.length - 1 };
 }
 
 function reparerToutesLesFormules() {
