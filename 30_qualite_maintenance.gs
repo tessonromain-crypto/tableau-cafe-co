@@ -141,7 +141,7 @@ function executerControleQualiteGuide_(afficherAlerte) {
 
   const bilan = compterNiveauxControle_(resultats);
   const resume = bilan.erreurs + ' erreur(s), ' + bilan.avertissements + ' avertissement(s), ' + bilan.informations + ' information(s)';
-  journaliser_('Contrôle qualité guidé', resume);
+  if (afficherAlerte) journaliser_('Contrôle qualité guidé', resume);
   if (afficherAlerte) SpreadsheetApp.getUi().alert('Contrôle qualité guidé terminé :\n\n' + resume + '\n\nConsulte la feuille CONTROLE_QUALITE pour les corrections conseillées.');
   return resultats;
 }
