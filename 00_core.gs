@@ -25,7 +25,7 @@ function onOpen() {
 
   const controle = ui.createMenu('Contrôle')
     .addItem('Recalculer les tickets', 'recalculerTicketsMois')
-    .addItem('Vérifier le contrôle qualité', 'verifierControleQualite');
+    .addItem('Lancer le contrôle qualité guidé', 'lancerControleQualiteGuide');
 
   const maintenance = ui.createMenu('Maintenance et tests')
     .addItem('Réparer les formules Ticket de tous les mois', 'reparerFormulesTickets')
