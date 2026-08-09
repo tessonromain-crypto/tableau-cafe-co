@@ -214,7 +214,7 @@ function appliquerSemaineTypeUneSemaine() {
   });
 
   recalculerTicketsFeuille_(feuille);
-  verifierControleQualite_(false);
+  executerControleQualiteGuide_(false);
   journaliser_('Application SEMAINE_TYPE', nomMois + ' — semaine du ' + cleJour_(lundi) + ' — ' + modifies + ' affectation(s) modifiée(s)');
   ui.alert('Semaine type appliquée. Affectations modifiées : ' + modifies + '.');
 }

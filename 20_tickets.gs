@@ -149,7 +149,7 @@ function recalculerTicketsMois() {
 
   installerFormulesTicketsPourFeuille_(sheet);
   const stats = recalculerTicketsFeuille_(sheet);
-  verifierControleQualite_(false);
+  executerControleQualiteGuide_(false);
   journaliser_('Recalcul tickets', nomMois + ' : ' + stats.oui + ' Oui, ' + stats.non + ' Non, ' + stats.doublons + ' doublon(s) neutralisé(s)');
   ui.alert('Tickets recalculés.\n\nOui : ' + stats.oui + '\nNon : ' + stats.non + '\nVides : ' + stats.vides + '\nDoublons neutralisés : ' + stats.doublons);
 }
@@ -197,7 +197,7 @@ function reparerFormulesTickets() {
     feuilles++;
   });
 
-  verifierControleQualite_(false);
+  executerControleQualiteGuide_(false);
   SpreadsheetApp.flush();
   journaliser_(
     'Réparation formules Ticket',
@@ -278,7 +278,7 @@ function onEdit(e) {
     });
     if (concernePlanning) {
       recalculerTicketsFeuille_(sh);
-      verifierControleQualite_(false);
+      executerControleQualiteGuide_(false);
     }
     return;
   }
@@ -288,6 +288,6 @@ function onEdit(e) {
       const moisSheet = e.source.getSheetByName(mois);
       if (moisSheet) recalculerTicketsFeuille_(moisSheet);
     });
-    verifierControleQualite_(false);
+    executerControleQualiteGuide_(false);
   }
 }
