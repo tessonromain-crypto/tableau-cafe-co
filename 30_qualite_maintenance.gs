@@ -210,6 +210,10 @@ function mettreEnFormeControleGuide_(controle, nbResultats, initialiserMiseEnPag
     controle.setColumnWidth(8, 260);
     controle.setColumnWidth(9, 360);
   }
+  const nbAnciennesLignes = Math.max(controle.getMaxRows() - 1, 1);
+  controle.getRange(2, 1, nbAnciennesLignes, 1)
+    .setBackground(null)
+    .setFontWeight('normal');
   if (!nbResultats) return;
   const plage = controle.getRange(2, 1, nbResultats, largeur);
   plage.setVerticalAlignment('top').setWrap(true);
