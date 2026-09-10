@@ -20,18 +20,19 @@ function executerControleQualiteGuide_(afficherAlerte) {
   CAFCO_MOIS.forEach(function(nomMois) {
     const sh = ss.getSheetByName(nomMois);
     if (!sh || sh.getLastRow() < 2) return;
+    const schema = schemaPlanning_(sh);
     const nbLignes = sh.getLastRow() - 1;
-    const plage = sh.getRange(2, 1, nbLignes, 26);
+    const plage = sh.getRange(2, 1, nbLignes, schema.totalCols);
     const data = plage.getValues();
     const formules = plage.getFormulas();
 
     data.forEach(function(ligne, indexLigne) {
-      const date = ligne[0];
-      const poste = String(ligne[1] || '').trim();
+      const date = ligne[schema.dateCol - 1];
+      const poste = String(ligne[schema.posteCol - 1] || '').trim();
       if (!(date instanceof Date) || !poste) return;
       const numeroLigne = indexLigne + 2;
 
-      CAFCO_SLOTS.forEach(function(slot) {
+      schema.slots.forEach(function(slot) {
         const benevole = String(ligne[slot.beneCol - 1] || '').trim();
         const statut = String(ligne[slot.statutCol - 1] || '').trim();
         const ticket = String(ligne[slot.ticketCol - 1] || '').trim();
@@ -318,7 +319,11 @@ function auditerStructureClasseur() {
 
   const modele = ss.getSheetByName('_MODELE_MOIS');
   if (modele) {
-    CAFCO_SLOTS.forEach(function(slot) {
+    const schemaModele = schemaPlanning_(modele);
+    if (!schemaModele.avecJour) anomalies.push('_MODELE_MOIS : colonne Jour absente en A');
+    if (modele.getMaxColumns() < schemaModele.totalCols) anomalies.push('_MODELE_MOIS : nombre de colonnes insuffisant');
+    if (schemaModele.avecJour && modele.getFrozenColumns() < 3) anomalies.push('_MODELE_MOIS : les 3 premières colonnes doivent être figées');
+    schemaModele.slots.forEach(function(slot) {
       const entete = modele.getRange(1, slot.ticketCol).getDisplayValue();
       if (entete !== 'Ticket') anomalies.push('_MODELE_MOIS : en-tête incorrect en ' + modele.getRange(1, slot.ticketCol).getA1Notation());
     });
@@ -327,15 +332,19 @@ function auditerStructureClasseur() {
   CAFCO_MOIS.forEach(function(nom) {
     const sh = ss.getSheetByName(nom);
     if (!sh) return;
-    if (sh.getMaxColumns() < 26) {
-      anomalies.push(nom + ' : moins de 26 colonnes');
+    const schema = schemaPlanning_(sh);
+    if (sh.getMaxColumns() < schema.totalCols) {
+      anomalies.push(nom + ' : nombre de colonnes insuffisant pour son format');
       return;
     }
-    CAFCO_SLOTS.forEach(function(slot) {
+    schema.slots.forEach(function(slot) {
       if (sh.getRange(1, slot.ticketCol).getDisplayValue() !== 'Ticket') {
         anomalies.push(nom + ' : en-tête Ticket incorrect colonne ' + slot.ticketCol);
       }
     });
+    if (schema.avecJour && sh.getFrozenColumns() < 3) {
+      anomalies.push(nom + ' : les colonnes Jour, Date et Poste ne sont pas toutes figées');
+    }
   });
 
   journaliser_('Audit structure', anomalies.length + ' anomalie(s)');
