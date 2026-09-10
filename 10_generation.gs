@@ -46,6 +46,9 @@ function genererMoisDepuisModele() {
   ajusterNombreLignes_(cible, lignes.length, params.postes.length);
   nettoyerMoisV2_(cible);
   ecrireDatesEtPostesV2_(cible, lignes);
+  appliquerCouleursPostes_(cible);
+  cible.setFrozenRows(1);
+  cible.setFrozenColumns(schemaPlanning_(cible).avecJour ? 3 : 2);
   installerFormulesTicketsPourFeuille_(cible);
   recalculerTicketsFeuille_(cible);
   protegerFormulesTickets_(cible);
@@ -92,18 +95,19 @@ function construireLignesMois_(annee, mois, params) {
 function ajusterNombreLignes_(sheet, nbLignesDonnees, nbPostes) {
   if (!nbPostes || nbPostes < 1) throw new Error('Le nombre de postes est invalide.');
   const necessaires = nbLignesDonnees + 1;
+  const schema = schemaPlanning_(sheet);
 
   if (sheet.getMaxRows() < necessaires) {
     const aAjouter = necessaires - sheet.getMaxRows();
     sheet.insertRowsAfter(sheet.getMaxRows(), aAjouter);
 
     const sourceStart = Math.max(2, sheet.getLastRow() - nbPostes + 1);
-    const bloc = sheet.getRange(sourceStart, 1, Math.min(nbPostes, sheet.getMaxRows() - sourceStart + 1), 26);
+    const bloc = sheet.getRange(sourceStart, 1, Math.min(nbPostes, sheet.getMaxRows() - sourceStart + 1), schema.totalCols);
     let destinationRow = sourceStart + bloc.getNumRows();
     while (destinationRow <= necessaires) {
       const hauteur = Math.min(bloc.getNumRows(), necessaires - destinationRow + 1);
-      bloc.offset(0, 0, hauteur, 26).copyTo(
-        sheet.getRange(destinationRow, 1, hauteur, 26),
+      bloc.offset(0, 0, hauteur, schema.totalCols).copyTo(
+        sheet.getRange(destinationRow, 1, hauteur, schema.totalCols),
         SpreadsheetApp.CopyPasteType.PASTE_NORMAL,
         false
       );
@@ -119,13 +123,39 @@ function ajusterNombreLignes_(sheet, nbLignesDonnees, nbPostes) {
 function nettoyerMoisV2_(sheet) {
   const maxRows = sheet.getMaxRows();
   if (maxRows <= 1) return;
-  [3,4,6,7,9,10,12,13,15,16,18,19,21,22,24,25].forEach(function(col) {
-    sheet.getRange(2, col, maxRows - 1, 1).clearContent();
+  const schema = schemaPlanning_(sheet);
+  schema.slots.forEach(function(slot) {
+    sheet.getRange(2, slot.beneCol, maxRows - 1, 1).clearContent();
+    sheet.getRange(2, slot.statutCol, maxRows - 1, 1).clearContent();
   });
 }
 
 function ecrireDatesEtPostesV2_(sheet, lignes) {
-  if (lignes.length) sheet.getRange(2, 1, lignes.length, 2).setValues(lignes);
+  if (!lignes.length) return;
+  const schema = schemaPlanning_(sheet);
+  if (schema.avecJour) {
+    const jours = ['Dimanche', 'Lundi', 'Mardi', 'Mercredi', 'Jeudi', 'Vendredi', 'Samedi'];
+    const valeurs = lignes.map(function(ligne) {
+      const date = ligne[0];
+      return [jours[date.getDay()], date, ligne[1]];
+    });
+    sheet.getRange(2, 1, valeurs.length, 3).setValues(valeurs);
+  } else {
+    sheet.getRange(2, 1, lignes.length, 2).setValues(lignes);
+  }
+}
+
+function appliquerCouleursPostes_(sheet) {
+  const lastRow = sheet.getLastRow();
+  if (lastRow < 2) return;
+  const schema = schemaPlanning_(sheet);
+  const nbLignes = lastRow - 1;
+  const couleursPostes = sheet.getRange(2, schema.posteCol, nbLignes, 1).getBackgrounds();
+  const couleurs = couleursPostes.map(function(ligne) {
+    const couleur = ligne[0] || '#ffffff';
+    return Array(schema.totalCols).fill(couleur);
+  });
+  sheet.getRange(2, 1, nbLignes, schema.totalCols).setBackgrounds(couleurs);
 }
 
 function appliquerSemaineTypeUneSemaine() {
@@ -186,17 +216,18 @@ function appliquerSemaineTypeUneSemaine() {
     if (jour && poste) modele[jour + '|' + poste] = l.slice(2, 10);
   });
   const jours = ['Dimanche','Lundi','Mardi','Mercredi','Jeudi','Vendredi','Samedi'];
-  const data = feuille.getRange(2, 1, Math.max(feuille.getLastRow() - 1, 1), 26).getValues();
+  const schema = schemaPlanning_(feuille);
+  const data = feuille.getRange(2, 1, Math.max(feuille.getLastRow() - 1, 1), schema.totalCols).getValues();
   let modifies = 0;
 
   data.forEach(function(ligne) {
-    const date = ligne[0];
-    const poste = String(ligne[1] || '').trim();
+    const date = ligne[schema.dateCol - 1];
+    const poste = String(ligne[schema.posteCol - 1] || '').trim();
     if (!(date instanceof Date) || !poste || date < lundi || date > fin || (posteChoisi && poste !== posteChoisi)) return;
     const noms = modele[jours[date.getDay()] + '|' + poste];
     if (!noms) return;
 
-    CAFCO_SLOTS.forEach(function(slot, i) {
+    schema.slots.forEach(function(slot, i) {
       const beneIdx = slot.beneCol - 1;
       const statutIdx = slot.statutCol - 1;
       const nouveau = noms[i] || '';
@@ -208,7 +239,7 @@ function appliquerSemaineTypeUneSemaine() {
     });
   });
 
-  CAFCO_SLOTS.forEach(function(slot) {
+  schema.slots.forEach(function(slot) {
     feuille.getRange(2, slot.beneCol, data.length, 1).setValues(data.map(function(l) { return [l[slot.beneCol - 1]]; }));
     feuille.getRange(2, slot.statutCol, data.length, 1).setValues(data.map(function(l) { return [l[slot.statutCol - 1]]; }));
   });
