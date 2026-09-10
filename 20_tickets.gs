@@ -12,7 +12,12 @@ function obtenirFeuilleTicketsCalcul_(nomMois) {
   return sh;
 }
 
-function calculerTickets_(planning, infosBenevoles) {
+function calculerTickets_(planning, infosBenevoles, schema) {
+  schema = schema || {
+    dateCol: 1,
+    totalCols: 26,
+    slots: CAFCO_SLOTS
+  };
   const resultat = planning.map(function(l) { return l.slice(); });
   const compteursSemaine = {};
   const creneauxDejaComptes = {};
@@ -22,9 +27,9 @@ function calculerTickets_(planning, infosBenevoles) {
   let doublons = 0;
 
   for (let r = 0; r < resultat.length; r++) {
-    const date = resultat[r][0];
+    const date = resultat[r][schema.dateCol - 1];
     if (!(date instanceof Date)) {
-      CAFCO_SLOTS.forEach(function(slot) {
+      schema.slots.forEach(function(slot) {
         resultat[r][slot.ticketCol - 1] = '';
         vides++;
       });
@@ -34,7 +39,7 @@ function calculerTickets_(planning, infosBenevoles) {
     const semaine = getSemaineCle_(date);
     const jour = cleJour_(date);
 
-    CAFCO_SLOTS.forEach(function(slot) {
+    schema.slots.forEach(function(slot) {
       const benevole = String(resultat[r][slot.beneCol - 1] || '').trim();
       const presence = String(resultat[r][slot.statutCol - 1] || '').trim();
       let ticket = '';
@@ -99,15 +104,16 @@ function recalculerTicketsFeuille_(sheet, infosBenevoles) {
   const lastRow = sheet.getLastRow();
   if (lastRow < 2) return { oui: 0, non: 0, vides: 0, doublons: 0 };
 
-  const planning = sheet.getRange(2, 1, lastRow - 1, 26).getValues();
-  const calcul = calculerTickets_(planning, infosBenevoles || lireInfosBenevoles_());
+  const schema = schemaPlanning_(sheet);
+  const planning = sheet.getRange(2, 1, lastRow - 1, schema.totalCols).getValues();
+  const calcul = calculerTickets_(planning, infosBenevoles || lireInfosBenevoles_(), schema);
   const ledger = obtenirFeuilleTicketsCalcul_(sheet.getName());
 
   if (ledger.getMaxRows() < lastRow) ledger.insertRowsAfter(ledger.getMaxRows(), lastRow - ledger.getMaxRows());
-  if (ledger.getMaxColumns() < 26) ledger.insertColumnsAfter(ledger.getMaxColumns(), 26 - ledger.getMaxColumns());
+  if (ledger.getMaxColumns() < schema.totalCols) ledger.insertColumnsAfter(ledger.getMaxColumns(), schema.totalCols - ledger.getMaxColumns());
   ledger.clearContents();
 
-  CAFCO_SLOTS.forEach(function(slot) {
+  schema.slots.forEach(function(slot) {
     const valeurs = calcul.planning.map(function(l) { return [l[slot.ticketCol - 1]]; });
     ledger.getRange(2, slot.ticketCol, valeurs.length, 1).setValues(valeurs);
   });
@@ -119,10 +125,11 @@ function recalculerTicketsFeuille_(sheet, infosBenevoles) {
 function installerFormulesTicketsPourFeuille_(sheet) {
   if (!sheet || !estFeuilleMois_(sheet.getName())) return 0;
   const lastRow = Math.max(sheet.getLastRow(), 2);
+  const schema = schemaPlanning_(sheet);
   obtenirFeuilleTicketsCalcul_(sheet.getName());
   let nbFormules = 0;
 
-  CAFCO_SLOTS.forEach(function(slot) {
+  schema.slots.forEach(function(slot) {
     const formules = [];
     const nomLedger = nomFeuilleTicketsCalcul_(sheet.getName()).replace(/'/g, "''");
     for (let r = 2; r <= lastRow; r++) {
@@ -155,8 +162,6 @@ function recalculerTicketsMois() {
 }
 
 function corrigerTicketsMaxSemaine() {
-  // Compatibilité avec d'anciens déclencheurs éventuels.
-  // Cette fonction ne doit plus apparaître dans le menu.
   recalculerTicketsMois();
 }
 
@@ -178,12 +183,13 @@ function reparerFormulesTickets() {
   CAFCO_MOIS.forEach(function(nom) {
     const sh = ss.getSheetByName(nom);
     if (!sh) return;
+    const schema = schemaPlanning_(sh);
 
-    if (sh.getMaxColumns() < 26) {
-      sh.insertColumnsAfter(sh.getMaxColumns(), 26 - sh.getMaxColumns());
+    if (sh.getMaxColumns() < schema.totalCols) {
+      sh.insertColumnsAfter(sh.getMaxColumns(), schema.totalCols - sh.getMaxColumns());
     }
 
-    CAFCO_SLOTS.forEach(function(slot) {
+    schema.slots.forEach(function(slot) {
       const celluleEntete = sh.getRange(1, slot.ticketCol);
       if (celluleEntete.getDisplayValue() !== 'Ticket') {
         celluleEntete.setValue('Ticket');
@@ -224,7 +230,8 @@ function protegerFormulesTickets_(sheet) {
   });
 
   const lastRow = Math.max(sheet.getLastRow(), 2);
-  CAFCO_SLOTS.forEach(function(slot) {
+  const schema = schemaPlanning_(sheet);
+  schema.slots.forEach(function(slot) {
     const range = sheet.getRange(2, slot.ticketCol, lastRow - 1, 1);
     const description = prefix + sheet.getName() + '_COL_' + slot.ticketCol;
     const existantes = protectionsTickets[description] || [];
@@ -273,7 +280,8 @@ function onEdit(e) {
 
   if (estFeuilleMois_(nom)) {
     const col = e.range.getColumn();
-    const concernePlanning = CAFCO_SLOTS.some(function(slot) {
+    const schema = schemaPlanning_(sh);
+    const concernePlanning = schema.slots.some(function(slot) {
       return col === slot.beneCol || col === slot.statutCol;
     });
     if (concernePlanning) {
