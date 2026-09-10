@@ -5,6 +5,7 @@ const CAFCO_MOIS = [
   'JUILLET', 'AOÛT', 'SEPTEMBRE', 'OCTOBRE', 'NOVEMBRE', 'DÉCEMBRE'
 ];
 
+// Positions historiques (format 26 colonnes : Date, Poste, créneaux...)
 const CAFCO_SLOTS = [
   { beneCol: 3, statutCol: 4, ticketCol: 5, periode: 'MATIN', nom: 'Matin 1' },
   { beneCol: 6, statutCol: 7, ticketCol: 8, periode: 'MATIN', nom: 'Matin 2' },
@@ -15,6 +16,27 @@ const CAFCO_SLOTS = [
   { beneCol: 21, statutCol: 22, ticketCol: 23, periode: 'APRES_MIDI', nom: 'Après-midi 3' },
   { beneCol: 24, statutCol: 25, ticketCol: 26, periode: 'APRES_MIDI', nom: 'Après-midi 4' }
 ];
+
+function schemaPlanning_(sheet) {
+  const avecJour = !!sheet && String(sheet.getRange(1, 1).getDisplayValue() || '').trim().toLowerCase() === 'jour';
+  const decalage = avecJour ? 1 : 0;
+  return {
+    avecJour: avecJour,
+    jourCol: avecJour ? 1 : null,
+    dateCol: 1 + decalage,
+    posteCol: 2 + decalage,
+    totalCols: 26 + decalage,
+    slots: CAFCO_SLOTS.map(function(slot) {
+      return {
+        beneCol: slot.beneCol + decalage,
+        statutCol: slot.statutCol + decalage,
+        ticketCol: slot.ticketCol + decalage,
+        periode: slot.periode,
+        nom: slot.nom
+      };
+    })
+  };
+}
 
 function onOpen() {
   const ui = SpreadsheetApp.getUi();
