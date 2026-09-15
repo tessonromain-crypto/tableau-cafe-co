@@ -46,7 +46,6 @@ function genererMoisDepuisModele() {
   ajusterNombreLignes_(cible, lignes.length, params.postes.length);
   nettoyerMoisV2_(cible);
   ecrireDatesEtPostesV2_(cible, lignes);
-  appliquerCouleursPostes_(cible);
   cible.setFrozenRows(1);
   cible.setFrozenColumns(schemaPlanning_(cible).avecJour ? 3 : 2);
   installerFormulesTicketsPourFeuille_(cible);
