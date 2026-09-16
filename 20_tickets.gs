@@ -286,7 +286,6 @@ function onEdit(e) {
     });
     if (concernePlanning) {
       recalculerTicketsFeuille_(sh);
-      executerControleQualiteGuide_(false);
     }
     return;
   }
