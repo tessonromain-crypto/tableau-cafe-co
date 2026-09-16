@@ -1,16 +1,4 @@
-// Café&Co — calcul sécurisé des tickets
-
-function obtenirFeuilleTicketsCalcul_(nomMois) {
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
-  const nom = nomFeuilleTicketsCalcul_(nomMois);
-  let sh = ss.getSheetByName(nom);
-  if (!sh) {
-    sh = ss.insertSheet(nom);
-    sh.hideSheet();
-  }
-  if (!sh.isSheetHidden()) sh.hideSheet();
-  return sh;
-}
+// Café&Co — calcul sécurisé et réactif des tickets
 
 function calculerTickets_(planning, infosBenevoles, schema) {
   schema = schema || {
@@ -18,6 +6,7 @@ function calculerTickets_(planning, infosBenevoles, schema) {
     totalCols: 26,
     slots: CAFCO_SLOTS
   };
+
   const resultat = planning.map(function(l) { return l.slice(); });
   const compteursSemaine = {};
   const creneauxDejaComptes = {};
@@ -99,6 +88,15 @@ function lireInfosBenevoles_() {
   return infos;
 }
 
+function ecrireTicketsCalcules_(sheet, calcul, schema) {
+  schema.slots.forEach(function(slot) {
+    const valeurs = calcul.planning.map(function(l) {
+      return [l[slot.ticketCol - 1]];
+    });
+    sheet.getRange(2, slot.ticketCol, valeurs.length, 1).setValues(valeurs);
+  });
+}
+
 function recalculerTicketsFeuille_(sheet, infosBenevoles) {
   if (!sheet || !estFeuilleMois_(sheet.getName())) return null;
   const lastRow = sheet.getLastRow();
@@ -107,17 +105,7 @@ function recalculerTicketsFeuille_(sheet, infosBenevoles) {
   const schema = schemaPlanning_(sheet);
   const planning = sheet.getRange(2, 1, lastRow - 1, schema.totalCols).getValues();
   const calcul = calculerTickets_(planning, infosBenevoles || lireInfosBenevoles_(), schema);
-  const ledger = obtenirFeuilleTicketsCalcul_(sheet.getName());
-
-  if (ledger.getMaxRows() < lastRow) ledger.insertRowsAfter(ledger.getMaxRows(), lastRow - ledger.getMaxRows());
-  if (ledger.getMaxColumns() < schema.totalCols) ledger.insertColumnsAfter(ledger.getMaxColumns(), schema.totalCols - ledger.getMaxColumns());
-  ledger.clearContents();
-
-  schema.slots.forEach(function(slot) {
-    const valeurs = calcul.planning.map(function(l) { return [l[slot.ticketCol - 1]]; });
-    ledger.getRange(2, slot.ticketCol, valeurs.length, 1).setValues(valeurs);
-  });
-
+  ecrireTicketsCalcules_(sheet, calcul, schema);
   SpreadsheetApp.flush();
   return calcul.stats;
 }
@@ -136,15 +124,13 @@ function recalculerTicketsSemaines_(sheet, semaines, infosBenevoles) {
   const schema = schemaPlanning_(sheet);
   const planning = sheet.getRange(2, 1, lastRow - 1, schema.totalCols).getValues();
   const calcul = calculerTickets_(planning, infosBenevoles || lireInfosBenevoles_(), schema);
-  const ledger = obtenirFeuilleTicketsCalcul_(sheet.getName());
-
-  if (ledger.getMaxRows() < lastRow) ledger.insertRowsAfter(ledger.getMaxRows(), lastRow - ledger.getMaxRows());
-  if (ledger.getMaxColumns() < schema.totalCols) ledger.insertColumnsAfter(ledger.getMaxColumns(), schema.totalCols - ledger.getMaxColumns());
 
   const lignesCibles = [];
   planning.forEach(function(ligne, index) {
     const date = ligne[schema.dateCol - 1];
-    if (date instanceof Date && semainesCibles[getSemaineCle_(date)]) lignesCibles.push(index);
+    if (date instanceof Date && semainesCibles[getSemaineCle_(date)]) {
+      lignesCibles.push(index);
+    }
   });
   if (!lignesCibles.length) return calcul.stats;
 
@@ -163,42 +149,34 @@ function recalculerTicketsSemaines_(sheet, semaines, infosBenevoles) {
   }
   groupes.push({ debut: debut, fin: precedent });
 
-  const premiereColTicket = schema.slots[0].ticketCol;
-  const derniereColTicket = schema.slots[schema.slots.length - 1].ticketCol;
-  const largeur = derniereColTicket - premiereColTicket + 1;
-
-  groupes.forEach(function(groupe) {
-    const valeurs = [];
-    for (let index = groupe.debut; index <= groupe.fin; index++) {
-      const ligne = new Array(largeur).fill('');
-      schema.slots.forEach(function(slot) {
-        ligne[slot.ticketCol - premiereColTicket] = calcul.planning[index][slot.ticketCol - 1];
-      });
-      valeurs.push(ligne);
-    }
-    ledger.getRange(groupe.debut + 2, premiereColTicket, valeurs.length, largeur).setValues(valeurs);
+  schema.slots.forEach(function(slot) {
+    groupes.forEach(function(groupe) {
+      const valeurs = [];
+      for (let index = groupe.debut; index <= groupe.fin; index++) {
+        valeurs.push([calcul.planning[index][slot.ticketCol - 1]]);
+      }
+      sheet.getRange(groupe.debut + 2, slot.ticketCol, valeurs.length, 1).setValues(valeurs);
+    });
   });
 
+  SpreadsheetApp.flush();
   return calcul.stats;
 }
 
+// Compatibilité avec le reste du projet : les Ticket sont maintenant des valeurs
+// calculées par le script, et non des formules reliées à une feuille cachée.
 function installerFormulesTicketsPourFeuille_(sheet) {
   if (!sheet || !estFeuilleMois_(sheet.getName())) return 0;
   const lastRow = Math.max(sheet.getLastRow(), 2);
   const schema = schemaPlanning_(sheet);
-  obtenirFeuilleTicketsCalcul_(sheet.getName());
-  let nbFormules = 0;
+  let cellulesPreparees = 0;
 
   schema.slots.forEach(function(slot) {
-    const formules = [];
-    const nomLedger = nomFeuilleTicketsCalcul_(sheet.getName()).replace(/'/g, "''");
-    for (let r = 2; r <= lastRow; r++) {
-      formules.push(["=IFERROR('" + nomLedger + "'!" + sheet.getRange(r, slot.ticketCol).getA1Notation() + ';"")']);
-    }
-    sheet.getRange(2, slot.ticketCol, formules.length, 1).setFormulas(formules);
-    nbFormules += formules.length;
+    const range = sheet.getRange(2, slot.ticketCol, lastRow - 1, 1);
+    range.clearContent();
+    cellulesPreparees += lastRow - 1;
   });
-  return nbFormules;
+  return cellulesPreparees;
 }
 
 function recalculerTicketsMois() {
@@ -214,7 +192,6 @@ function recalculerTicketsMois() {
     return;
   }
 
-  installerFormulesTicketsPourFeuille_(sheet);
   const stats = recalculerTicketsFeuille_(sheet);
   executerControleQualiteGuide_(false);
   journaliser_('Recalcul tickets', nomMois + ' : ' + stats.oui + ' Oui, ' + stats.non + ' Non, ' + stats.doublons + ' doublon(s) neutralisé(s)');
@@ -230,13 +207,12 @@ function reparerFormulesTickets() {
   const ui = SpreadsheetApp.getUi();
   const choix = ui.alert(
     'Réparer les tickets de tous les mois',
-    'Cette action corrigera les en-têtes Ticket, réinstallera les formules, recalculera les tickets et remettra les protections sur tous les mois existants. Continuer ?',
+    'Cette action recalculera les tickets et remettra les protections sur tous les mois existants. Continuer ?',
     ui.ButtonSet.YES_NO
   );
   if (choix !== ui.Button.YES) return;
 
   let feuilles = 0;
-  let formules = 0;
   let entetesCorriges = 0;
   const infosBenevoles = lireInfosBenevoles_();
 
@@ -257,7 +233,6 @@ function reparerFormulesTickets() {
       }
     });
 
-    formules += installerFormulesTicketsPourFeuille_(sh);
     recalculerTicketsFeuille_(sh, infosBenevoles);
     protegerFormulesTickets_(sh);
     feuilles++;
@@ -266,13 +241,12 @@ function reparerFormulesTickets() {
   executerControleQualiteGuide_(false);
   SpreadsheetApp.flush();
   journaliser_(
-    'Réparation formules Ticket',
-    feuilles + ' feuille(s), ' + formules + ' formule(s), ' + entetesCorriges + ' en-tête(s) corrigé(s)'
+    'Réparation tickets',
+    feuilles + ' feuille(s), ' + entetesCorriges + ' en-tête(s) corrigé(s)'
   );
   ui.alert(
     'Réparation terminée.\n\n' +
     'Mois traités : ' + feuilles + '\n' +
-    'Formules réinstallées : ' + formules + '\n' +
     'En-têtes corrigés : ' + entetesCorriges
   );
 }
@@ -356,6 +330,7 @@ function onEdit(e) {
       derniereLigne - premiereLigne + 1,
       1
     ).getValues();
+
     const semaines = {};
     dates.forEach(function(ligne) {
       const date = ligne[0];
@@ -372,9 +347,10 @@ function onEdit(e) {
   }
 
   if (nom === 'BENEVOLES' && e.range.getRow() >= 2 && e.range.getColumn() <= 8) {
+    const infosBenevoles = lireInfosBenevoles_();
     CAFCO_MOIS.forEach(function(mois) {
       const moisSheet = e.source.getSheetByName(mois);
-      if (moisSheet) recalculerTicketsFeuille_(moisSheet);
+      if (moisSheet) recalculerTicketsFeuille_(moisSheet, infosBenevoles);
     });
     executerControleQualiteGuide_(false);
   }
