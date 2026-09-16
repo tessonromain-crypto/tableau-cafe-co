@@ -122,6 +122,66 @@ function recalculerTicketsFeuille_(sheet, infosBenevoles) {
   return calcul.stats;
 }
 
+function recalculerTicketsSemaines_(sheet, semaines, infosBenevoles) {
+  if (!sheet || !estFeuilleMois_(sheet.getName())) return null;
+  const lastRow = sheet.getLastRow();
+  if (lastRow < 2) return { oui: 0, non: 0, vides: 0, doublons: 0 };
+
+  const semainesCibles = {};
+  (semaines || []).forEach(function(semaine) {
+    if (semaine) semainesCibles[semaine] = true;
+  });
+  if (!Object.keys(semainesCibles).length) return null;
+
+  const schema = schemaPlanning_(sheet);
+  const planning = sheet.getRange(2, 1, lastRow - 1, schema.totalCols).getValues();
+  const calcul = calculerTickets_(planning, infosBenevoles || lireInfosBenevoles_(), schema);
+  const ledger = obtenirFeuilleTicketsCalcul_(sheet.getName());
+
+  if (ledger.getMaxRows() < lastRow) ledger.insertRowsAfter(ledger.getMaxRows(), lastRow - ledger.getMaxRows());
+  if (ledger.getMaxColumns() < schema.totalCols) ledger.insertColumnsAfter(ledger.getMaxColumns(), schema.totalCols - ledger.getMaxColumns());
+
+  const lignesCibles = [];
+  planning.forEach(function(ligne, index) {
+    const date = ligne[schema.dateCol - 1];
+    if (date instanceof Date && semainesCibles[getSemaineCle_(date)]) lignesCibles.push(index);
+  });
+  if (!lignesCibles.length) return calcul.stats;
+
+  const groupes = [];
+  let debut = lignesCibles[0];
+  let precedent = debut;
+  for (let i = 1; i < lignesCibles.length; i++) {
+    const courant = lignesCibles[i];
+    if (courant === precedent + 1) {
+      precedent = courant;
+      continue;
+    }
+    groupes.push({ debut: debut, fin: precedent });
+    debut = courant;
+    precedent = courant;
+  }
+  groupes.push({ debut: debut, fin: precedent });
+
+  const premiereColTicket = schema.slots[0].ticketCol;
+  const derniereColTicket = schema.slots[schema.slots.length - 1].ticketCol;
+  const largeur = derniereColTicket - premiereColTicket + 1;
+
+  groupes.forEach(function(groupe) {
+    const valeurs = [];
+    for (let index = groupe.debut; index <= groupe.fin; index++) {
+      const ligne = new Array(largeur).fill('');
+      schema.slots.forEach(function(slot) {
+        ligne[slot.ticketCol - premiereColTicket] = calcul.planning[index][slot.ticketCol - 1];
+      });
+      valeurs.push(ligne);
+    }
+    ledger.getRange(groupe.debut + 2, premiereColTicket, valeurs.length, largeur).setValues(valeurs);
+  });
+
+  return calcul.stats;
+}
+
 function installerFormulesTicketsPourFeuille_(sheet) {
   if (!sheet || !estFeuilleMois_(sheet.getName())) return 0;
   const lastRow = Math.max(sheet.getLastRow(), 2);
@@ -279,12 +339,33 @@ function onEdit(e) {
   const nom = sh.getName();
 
   if (estFeuilleMois_(nom)) {
-    const col = e.range.getColumn();
     const schema = schemaPlanning_(sh);
+    const premiereCol = e.range.getColumn();
+    const derniereCol = e.range.getLastColumn();
     const concernePlanning = schema.slots.some(function(slot) {
-      return col === slot.beneCol || col === slot.statutCol;
+      return (slot.beneCol >= premiereCol && slot.beneCol <= derniereCol) ||
+        (slot.statutCol >= premiereCol && slot.statutCol <= derniereCol);
     });
-    if (concernePlanning) {
+    if (!concernePlanning || e.range.getLastRow() < 2) return;
+
+    const premiereLigne = Math.max(2, e.range.getRow());
+    const derniereLigne = e.range.getLastRow();
+    const dates = sh.getRange(
+      premiereLigne,
+      schema.dateCol,
+      derniereLigne - premiereLigne + 1,
+      1
+    ).getValues();
+    const semaines = {};
+    dates.forEach(function(ligne) {
+      const date = ligne[0];
+      if (date instanceof Date) semaines[getSemaineCle_(date)] = true;
+    });
+
+    const clesSemaines = Object.keys(semaines);
+    if (clesSemaines.length) {
+      recalculerTicketsSemaines_(sh, clesSemaines);
+    } else {
       recalculerTicketsFeuille_(sh);
     }
     return;
