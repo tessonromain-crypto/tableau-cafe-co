@@ -163,6 +163,116 @@ function recalculerTicketsSemaines_(sheet, semaines, infosBenevoles) {
   return calcul.stats;
 }
 
+// Recalcul ultra-ciblé : uniquement la ou les personnes concernées,
+// sur la semaine de la ligne modifiée. Aucun recalcul du mois entier.
+function recalculerTicketsPersonnesSemaine_(sheet, ligneEditee, noms, ticketColAForcerVide) {
+  if (!sheet || !estFeuilleMois_(sheet.getName()) || ligneEditee < 2) return;
+
+  const schema = schemaPlanning_(sheet);
+  const dateEditee = sheet.getRange(ligneEditee, schema.dateCol).getValue();
+  if (!(dateEditee instanceof Date)) return;
+
+  const nomsCibles = {};
+  (noms || []).forEach(function(nom) {
+    nom = String(nom || '').trim();
+    if (nom) nomsCibles[nom] = true;
+  });
+
+  // Si un nom vient d'être supprimé/remplacé, son ancien Ticket doit disparaître immédiatement.
+  if (ticketColAForcerVide) {
+    sheet.getRange(ligneEditee, ticketColAForcerVide).clearContent();
+  }
+
+  const listeNoms = Object.keys(nomsCibles);
+  if (!listeNoms.length) return;
+
+  const semaineCible = getSemaineCle_(dateEditee);
+  const lastRow = sheet.getLastRow();
+
+  // Une seule lecture de la colonne Date pour trouver les lignes de la semaine.
+  const dates = sheet.getRange(2, schema.dateCol, lastRow - 1, 1).getValues();
+  let premiereLigneSemaine = null;
+  let derniereLigneSemaine = null;
+
+  dates.forEach(function(ligne, index) {
+    const date = ligne[0];
+    if (!(date instanceof Date) || getSemaineCle_(date) !== semaineCible) return;
+    const numeroLigne = index + 2;
+    if (premiereLigneSemaine === null) premiereLigneSemaine = numeroLigne;
+    derniereLigneSemaine = numeroLigne;
+  });
+
+  if (premiereLigneSemaine === null) return;
+
+  // Une seule lecture du petit bloc de la semaine (en général ~20 lignes).
+  const nbLignes = derniereLigneSemaine - premiereLigneSemaine + 1;
+  const bloc = sheet.getRange(
+    premiereLigneSemaine,
+    1,
+    nbLignes,
+    schema.totalCols
+  ).getValues();
+
+  const infosBenevoles = lireInfosBenevoles_();
+  const compteurs = {};
+  const creneauxDejaComptes = {};
+  const misesAJour = [];
+
+  listeNoms.forEach(function(nom) {
+    compteurs[nom] = 0;
+  });
+
+  for (let r = 0; r < bloc.length; r++) {
+    const date = bloc[r][schema.dateCol - 1];
+    if (!(date instanceof Date)) continue;
+    const jour = cleJour_(date);
+
+    schema.slots.forEach(function(slot) {
+      const benevole = String(bloc[r][slot.beneCol - 1] || '').trim();
+      if (!nomsCibles[benevole]) return;
+
+      const presence = String(bloc[r][slot.statutCol - 1] || '').trim();
+      let ticket = '';
+
+      if (!presence) {
+        ticket = '';
+      } else if (presence !== 'Présent') {
+        ticket = 'Non';
+      } else {
+        const infos = infosBenevoles[benevole];
+        const eligible = infos && normaliserOui_(infos.souhaiteTicket) &&
+          (infos.statutAutomatique === 'Bénévole' || infos.statutAutomatique === 'Référent');
+
+        if (!eligible) {
+          ticket = 'Non';
+        } else {
+          const cleCreneau = benevole + '|' + jour + '|' + slot.periode;
+          if (creneauxDejaComptes[cleCreneau]) {
+            ticket = 'Non';
+          } else if ((compteurs[benevole] || 0) >= 3) {
+            ticket = 'Non';
+          } else {
+            ticket = 'Oui';
+            creneauxDejaComptes[cleCreneau] = true;
+            compteurs[benevole] = (compteurs[benevole] || 0) + 1;
+          }
+        }
+      }
+
+      misesAJour.push({
+        row: premiereLigneSemaine + r,
+        col: slot.ticketCol,
+        value: ticket
+      });
+    });
+  }
+
+  // Seulement les cellules Ticket des personnes concernées sont écrites.
+  misesAJour.forEach(function(item) {
+    sheet.getRange(item.row, item.col).setValue(item.value);
+  });
+}
+
 // Compatibilité avec le reste du projet : les Ticket sont maintenant des valeurs
 // calculées par le script, et non des formules reliées à une feuille cachée.
 function installerFormulesTicketsPourFeuille_(sheet) {
@@ -314,6 +424,37 @@ function onEdit(e) {
 
   if (estFeuilleMois_(nom)) {
     const schema = schemaPlanning_(sh);
+
+    // Chemin rapide : une seule cellule modifiée (cas courant au quotidien).
+    if (e.range.getNumRows() === 1 && e.range.getNumColumns() === 1 && e.range.getRow() >= 2) {
+      const col = e.range.getColumn();
+      const slot = schema.slots.find(function(item) {
+        return item.beneCol === col || item.statutCol === col;
+      });
+      if (!slot) return;
+
+      const row = e.range.getRow();
+      const noms = [];
+      let ticketAForcerVide = null;
+
+      if (col === slot.beneCol) {
+        // Nouveau nom + ancien nom : nécessaire lors d'un remplacement ou d'une suppression.
+        const nouveauNom = String(e.value || '').trim();
+        const ancienNom = String(e.oldValue || '').trim();
+        if (nouveauNom) noms.push(nouveauNom);
+        if (ancienNom && ancienNom !== nouveauNom) noms.push(ancienNom);
+        ticketAForcerVide = slot.ticketCol;
+      } else {
+        // Modification du statut : le nom est dans la cellule bénévole de la même ligne.
+        const benevole = String(sh.getRange(row, slot.beneCol).getValue() || '').trim();
+        if (benevole) noms.push(benevole);
+      }
+
+      recalculerTicketsPersonnesSemaine_(sh, row, noms, ticketAForcerVide);
+      return;
+    }
+
+    // Collages/plages multiples : filet de sécurité, recalcul des semaines touchées.
     const premiereCol = e.range.getColumn();
     const derniereCol = e.range.getLastColumn();
     const concernePlanning = schema.slots.some(function(slot) {
