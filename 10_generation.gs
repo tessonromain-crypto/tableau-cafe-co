@@ -46,9 +46,9 @@ function genererMoisDepuisModele() {
   ajusterNombreLignes_(cible, lignes.length, params.postes.length);
   nettoyerMoisV2_(cible);
   ecrireDatesEtPostesV2_(cible, lignes);
+  appliquerCouleursPostes_(cible);
   cible.setFrozenRows(1);
   cible.setFrozenColumns(schemaPlanning_(cible).avecJour ? 3 : 2);
-  installerFormulesTicketsPourFeuille_(cible);
   recalculerTicketsFeuille_(cible);
   protegerFormulesTickets_(cible);
   SpreadsheetApp.flush();
@@ -126,6 +126,7 @@ function nettoyerMoisV2_(sheet) {
   schema.slots.forEach(function(slot) {
     sheet.getRange(2, slot.beneCol, maxRows - 1, 1).clearContent();
     sheet.getRange(2, slot.statutCol, maxRows - 1, 1).clearContent();
+    sheet.getRange(2, slot.ticketCol, maxRows - 1, 1).clearContent();
   });
 }
 
@@ -144,16 +145,26 @@ function ecrireDatesEtPostesV2_(sheet, lignes) {
   }
 }
 
+// Applique la couleur du poste à toute la ligne, sauf aux colonnes Ticket.
+// Les colonnes Ticket restent volontairement blanches pour garder une lecture claire.
 function appliquerCouleursPostes_(sheet) {
   const lastRow = sheet.getLastRow();
   if (lastRow < 2) return;
   const schema = schemaPlanning_(sheet);
   const nbLignes = lastRow - 1;
   const couleursPostes = sheet.getRange(2, schema.posteCol, nbLignes, 1).getBackgrounds();
+  const tickets = {};
+  schema.slots.forEach(function(slot) { tickets[slot.ticketCol] = true; });
+
   const couleurs = couleursPostes.map(function(ligne) {
-    const couleur = ligne[0] || '#ffffff';
-    return Array(schema.totalCols).fill(couleur);
+    const couleurPoste = ligne[0] || '#ffffff';
+    const ligneCouleurs = [];
+    for (let col = 1; col <= schema.totalCols; col++) {
+      ligneCouleurs.push(tickets[col] ? '#ffffff' : couleurPoste);
+    }
+    return ligneCouleurs;
   });
+
   sheet.getRange(2, 1, nbLignes, schema.totalCols).setBackgrounds(couleurs);
 }
 
