@@ -1,19 +1,11 @@
 // Café&Co — calcul sécurisé et réactif des tickets
 
 function calculerTickets_(planning, infosBenevoles, schema) {
-  schema = schema || {
-    dateCol: 1,
-    totalCols: 26,
-    slots: CAFCO_SLOTS
-  };
-
+  schema = schema || { dateCol: 1, totalCols: 26, slots: CAFCO_SLOTS };
   const resultat = planning.map(function(l) { return l.slice(); });
   const compteursSemaine = {};
   const creneauxDejaComptes = {};
-  let oui = 0;
-  let non = 0;
-  let vides = 0;
-  let doublons = 0;
+  let oui = 0, non = 0, vides = 0, doublons = 0;
 
   for (let r = 0; r < resultat.length; r++) {
     const date = resultat[r][schema.dateCol - 1];
@@ -47,7 +39,6 @@ function calculerTickets_(planning, infosBenevoles, schema) {
         } else {
           const cleCreneau = jour + '|' + slot.periode + '|' + benevole;
           const cleSemaine = semaine + '|' + benevole;
-
           if (creneauxDejaComptes[cleCreneau]) {
             ticket = 'Non';
             doublons++;
@@ -75,9 +66,9 @@ function lireInfosBenevoles_() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const sh = ss.getSheetByName('BENEVOLES');
   if (!sh) throw new Error('Feuille BENEVOLES introuvable.');
-
   const lastRow = sh.getLastRow();
   if (lastRow < 2) return {};
+
   const data = sh.getRange(2, 1, lastRow - 1, 9).getValues();
   const infos = {};
   data.forEach(function(l) {
@@ -88,12 +79,11 @@ function lireInfosBenevoles_() {
   return infos;
 }
 
-function ecrireTicketsCalcules_(sheet, calcul, schema) {
+function ecrireTicketsCalcules_(sheet, calcul, schema, rowOffset) {
+  rowOffset = rowOffset || 2;
   schema.slots.forEach(function(slot) {
-    const valeurs = calcul.planning.map(function(l) {
-      return [l[slot.ticketCol - 1]];
-    });
-    sheet.getRange(2, slot.ticketCol, valeurs.length, 1).setValues(valeurs);
+    const valeurs = calcul.planning.map(function(l) { return [l[slot.ticketCol - 1]]; });
+    if (valeurs.length) sheet.getRange(rowOffset, slot.ticketCol, valeurs.length, 1).setValues(valeurs);
   });
 }
 
@@ -105,66 +95,48 @@ function recalculerTicketsFeuille_(sheet, infosBenevoles) {
   const schema = schemaPlanning_(sheet);
   const planning = sheet.getRange(2, 1, lastRow - 1, schema.totalCols).getValues();
   const calcul = calculerTickets_(planning, infosBenevoles || lireInfosBenevoles_(), schema);
-  ecrireTicketsCalcules_(sheet, calcul, schema);
+  ecrireTicketsCalcules_(sheet, calcul, schema, 2);
   SpreadsheetApp.flush();
   return calcul.stats;
 }
 
+// Recalcule uniquement les semaines demandées, sans parcourir tout le mois pour le calcul.
 function recalculerTicketsSemaines_(sheet, semaines, infosBenevoles) {
   if (!sheet || !estFeuilleMois_(sheet.getName())) return null;
   const lastRow = sheet.getLastRow();
-  if (lastRow < 2) return { oui: 0, non: 0, vides: 0, doublons: 0 };
+  if (lastRow < 2) return null;
 
-  const semainesCibles = {};
-  (semaines || []).forEach(function(semaine) {
-    if (semaine) semainesCibles[semaine] = true;
-  });
-  if (!Object.keys(semainesCibles).length) return null;
+  const cibles = {};
+  (semaines || []).forEach(function(semaine) { if (semaine) cibles[semaine] = true; });
+  if (!Object.keys(cibles).length) return null;
 
   const schema = schemaPlanning_(sheet);
-  const planning = sheet.getRange(2, 1, lastRow - 1, schema.totalCols).getValues();
-  const calcul = calculerTickets_(planning, infosBenevoles || lireInfosBenevoles_(), schema);
+  const infos = infosBenevoles || lireInfosBenevoles_();
+  const dates = sheet.getRange(2, schema.dateCol, lastRow - 1, 1).getValues();
+  const groupes = {};
 
-  const lignesCibles = [];
-  planning.forEach(function(ligne, index) {
-    const date = ligne[schema.dateCol - 1];
-    if (date instanceof Date && semainesCibles[getSemaineCle_(date)]) {
-      lignesCibles.push(index);
-    }
+  dates.forEach(function(ligne, index) {
+    const date = ligne[0];
+    if (!(date instanceof Date)) return;
+    const semaine = getSemaineCle_(date);
+    if (!cibles[semaine]) return;
+    if (!groupes[semaine]) groupes[semaine] = { debut: index + 2, fin: index + 2 };
+    groupes[semaine].fin = index + 2;
   });
-  if (!lignesCibles.length) return calcul.stats;
 
-  const groupes = [];
-  let debut = lignesCibles[0];
-  let precedent = debut;
-  for (let i = 1; i < lignesCibles.length; i++) {
-    const courant = lignesCibles[i];
-    if (courant === precedent + 1) {
-      precedent = courant;
-      continue;
-    }
-    groupes.push({ debut: debut, fin: precedent });
-    debut = courant;
-    precedent = courant;
-  }
-  groupes.push({ debut: debut, fin: precedent });
-
-  schema.slots.forEach(function(slot) {
-    groupes.forEach(function(groupe) {
-      const valeurs = [];
-      for (let index = groupe.debut; index <= groupe.fin; index++) {
-        valeurs.push([calcul.planning[index][slot.ticketCol - 1]]);
-      }
-      sheet.getRange(groupe.debut + 2, slot.ticketCol, valeurs.length, 1).setValues(valeurs);
-    });
+  Object.keys(groupes).forEach(function(semaine) {
+    const g = groupes[semaine];
+    const nbLignes = g.fin - g.debut + 1;
+    const planning = sheet.getRange(g.debut, 1, nbLignes, schema.totalCols).getValues();
+    const calcul = calculerTickets_(planning, infos, schema);
+    ecrireTicketsCalcules_(sheet, calcul, schema, g.debut);
   });
 
   SpreadsheetApp.flush();
-  return calcul.stats;
+  return true;
 }
 
-// Recalcul ultra-ciblé : uniquement la ou les personnes concernées,
-// sur la semaine de la ligne modifiée. Aucun recalcul du mois entier.
+// Recalcul ultra-ciblé : uniquement la ou les personnes concernées sur la semaine modifiée.
 function recalculerTicketsPersonnesSemaine_(sheet, ligneEditee, noms, ticketColAForcerVide) {
   if (!sheet || !estFeuilleMois_(sheet.getName()) || ligneEditee < 2) return;
 
@@ -178,18 +150,13 @@ function recalculerTicketsPersonnesSemaine_(sheet, ligneEditee, noms, ticketColA
     if (nom) nomsCibles[nom] = true;
   });
 
-  // Si un nom vient d'être supprimé/remplacé, son ancien Ticket doit disparaître immédiatement.
-  if (ticketColAForcerVide) {
-    sheet.getRange(ligneEditee, ticketColAForcerVide).clearContent();
-  }
+  if (ticketColAForcerVide) sheet.getRange(ligneEditee, ticketColAForcerVide).clearContent();
 
   const listeNoms = Object.keys(nomsCibles);
   if (!listeNoms.length) return;
 
   const semaineCible = getSemaineCle_(dateEditee);
   const lastRow = sheet.getLastRow();
-
-  // Une seule lecture de la colonne Date pour trouver les lignes de la semaine.
   const dates = sheet.getRange(2, schema.dateCol, lastRow - 1, 1).getValues();
   let premiereLigneSemaine = null;
   let derniereLigneSemaine = null;
@@ -201,26 +168,15 @@ function recalculerTicketsPersonnesSemaine_(sheet, ligneEditee, noms, ticketColA
     if (premiereLigneSemaine === null) premiereLigneSemaine = numeroLigne;
     derniereLigneSemaine = numeroLigne;
   });
-
   if (premiereLigneSemaine === null) return;
 
-  // Une seule lecture du petit bloc de la semaine (en général ~20 lignes).
   const nbLignes = derniereLigneSemaine - premiereLigneSemaine + 1;
-  const bloc = sheet.getRange(
-    premiereLigneSemaine,
-    1,
-    nbLignes,
-    schema.totalCols
-  ).getValues();
-
+  const bloc = sheet.getRange(premiereLigneSemaine, 1, nbLignes, schema.totalCols).getValues();
   const infosBenevoles = lireInfosBenevoles_();
   const compteurs = {};
   const creneauxDejaComptes = {};
   const misesAJour = [];
-
-  listeNoms.forEach(function(nom) {
-    compteurs[nom] = 0;
-  });
+  listeNoms.forEach(function(nom) { compteurs[nom] = 0; });
 
   for (let r = 0; r < bloc.length; r++) {
     const date = bloc[r][schema.dateCol - 1];
@@ -233,7 +189,6 @@ function recalculerTicketsPersonnesSemaine_(sheet, ligneEditee, noms, ticketColA
 
       const presence = String(bloc[r][slot.statutCol - 1] || '').trim();
       let ticket = '';
-
       if (!presence) {
         ticket = '';
       } else if (presence !== 'Présent') {
@@ -242,7 +197,6 @@ function recalculerTicketsPersonnesSemaine_(sheet, ligneEditee, noms, ticketColA
         const infos = infosBenevoles[benevole];
         const eligible = infos && normaliserOui_(infos.souhaiteTicket) &&
           (infos.statutAutomatique === 'Bénévole' || infos.statutAutomatique === 'Référent');
-
         if (!eligible) {
           ticket = 'Non';
         } else {
@@ -259,108 +213,19 @@ function recalculerTicketsPersonnesSemaine_(sheet, ligneEditee, noms, ticketColA
         }
       }
 
-      misesAJour.push({
-        row: premiereLigneSemaine + r,
-        col: slot.ticketCol,
-        value: ticket
-      });
+      misesAJour.push({ row: premiereLigneSemaine + r, col: slot.ticketCol, value: ticket });
     });
   }
 
-  // Seulement les cellules Ticket des personnes concernées sont écrites.
   misesAJour.forEach(function(item) {
     sheet.getRange(item.row, item.col).setValue(item.value);
   });
 }
 
-// Compatibilité avec le reste du projet : les Ticket sont maintenant des valeurs
-// calculées par le script, et non des formules reliées à une feuille cachée.
-function colA1_(col) {
-  let s = '';
-  while (col > 0) {
-    const r = (col - 1) % 26;
-    s = String.fromCharCode(65 + r) + s;
-    col = Math.floor((col - 1) / 26);
-  }
-  return s;
-}
-
-function formuleTicketNative_(row, slotIndex, schema, lastRow) {
-  const slot = schema.slots[slotIndex];
-  const dateCell = colA1_(schema.dateCol) + row;
-  const beneCell = colA1_(slot.beneCol) + row;
-  const statutCell = colA1_(slot.statutCol) + row;
-  const dateRange = '$' + colA1_(schema.dateCol) + '$2:$' + colA1_(schema.dateCol) + '$' + lastRow;
-  const debutSemaine = '(' + dateCell + '-WEEKDAY(' + dateCell + ',2)+1)';
-
-  // Nombre de tickets Oui déjà attribués avant cette cellule dans la même semaine
-  // pour la même personne. On ne regarde que les cellules antérieures afin d'éviter
-  // toute référence circulaire.
-  const compteOui = [];
-  schema.slots.forEach(function(s, i) {
-    const beneCol = '$' + colA1_(s.beneCol);
-    const ticketCol = '$' + colA1_(s.ticketCol);
-    let fin = row - 1;
-    if (i < slotIndex) fin = row;
-    if (fin < 2) return;
-    compteOui.push(
-      'COUNTIFS(' + dateRange + ',">="&' + debutSemaine + ',' +
-      dateRange + ',"<="&(' + debutSemaine + '+6),' +
-      beneCol + '$2:' + beneCol + '$' + fin + ',' + beneCell + ',' +
-      ticketCol + '$2:' + ticketCol + '$' + fin + ',"Oui")'
-    );
-  });
-  const nbOuiAvant = compteOui.length ? '(' + compteOui.join('+') + ')' : '0';
-
-  // Doublon = même bénévole, même date et même demi-journée déjà rencontré
-  // avant cette cellule avec le statut Présent.
-  const doublons = [];
-  schema.slots.forEach(function(s, i) {
-    if (s.periode !== slot.periode) return;
-    let fin = row - 1;
-    if (i < slotIndex) fin = row;
-    if (fin < 2) return;
-    const beneCol = '$' + colA1_(s.beneCol);
-    const statutCol = '$' + colA1_(s.statutCol);
-    doublons.push(
-      'COUNTIFS(' + dateRange + ',' + dateCell + ',' +
-      beneCol + '$2:' + beneCol + '$' + fin + ',' + beneCell + ',' +
-      statutCol + '$2:' + statutCol + '$' + fin + ',"Présent")'
-    );
-  });
-  const nbDoublons = doublons.length ? '(' + doublons.join('+') + ')' : '0';
-
-  return '=IF(OR(' + dateCell + '="",' + beneCell + '="",' + statutCell + '=""),"",'+
-    'IF(' + statutCell + '<>"Présent","Non",'+
-    'IF(IFERROR(VLOOKUP(' + beneCell + ',BENEVOLES!$A:$I,7,FALSE),"")<>"Oui","Non",'+
-    'IF(AND(IFERROR(VLOOKUP(' + beneCell + ',BENEVOLES!$A:$I,8,FALSE),"")<>"Bénévole",'+
-    'IFERROR(VLOOKUP(' + beneCell + ',BENEVOLES!$A:$I,8,FALSE),"")<>"Référent"),"Non",'+
-    'IF(' + nbDoublons + '>0,"Non",IF(' + nbOuiAvant + '>=3,"Non","Oui"))))))';
-}
-
-// Installe les formules natives Google Sheets. Ensuite les Tickets se recalculent
-// automatiquement sans onEdit Apps Script.
-function installerFormulesTicketsPourFeuille_(sheet) {
-  if (!sheet || !estFeuilleMois_(sheet.getName())) return 0;
-  const lastRow = Math.max(sheet.getLastRow(), 2);
-  const schema = schemaPlanning_(sheet);
-  let cellulesPreparees = 0;
-
-  schema.slots.forEach(function(slot, slotIndex) {
-    const formules = [];
-    for (let row = 2; row <= lastRow; row++) {
-      formules.push([formuleTicketNative_(row, slotIndex, schema, lastRow)]);
-    }
-    sheet.getRange(2, slot.ticketCol, formules.length, 1).setFormulas(formules);
-    cellulesPreparees += formules.length;
-  });
-  return cellulesPreparees;
-}
-
 function recalculerTicketsMois() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const ui = SpreadsheetApp.getUi();
-  const rep = ui.prompt('Réinstaller les formules Ticket', 'Indique le mois, par exemple : JUILLET', ui.ButtonSet.OK_CANCEL);
+  const rep = ui.prompt('Recalculer les tickets', 'Indique le mois, par exemple : JUILLET', ui.ButtonSet.OK_CANCEL);
   if (rep.getSelectedButton() !== ui.Button.OK) return;
 
   const nomMois = rep.getResponseText().trim().toUpperCase();
@@ -370,47 +235,48 @@ function recalculerTicketsMois() {
     return;
   }
 
-  const nb = installerFormulesTicketsPourFeuille_(sheet);
+  const stats = recalculerTicketsFeuille_(sheet);
   protegerFormulesTickets_(sheet);
-  SpreadsheetApp.flush();
-  journaliser_('Formules tickets', nomMois + ' : ' + nb + ' formule(s) installée(s)');
-  ui.alert('Formules Ticket réinstallées.\\n\\nCellules préparées : ' + nb);
+  journaliser_('Recalcul tickets', nomMois + ' : ' + stats.oui + ' Oui, ' + stats.non + ' Non');
+  ui.alert('Tickets recalculés pour ' + nomMois + '.');
 }
 
 function corrigerTicketsMaxSemaine() {
   recalculerTicketsMois();
 }
 
+// Nom conservé pour compatibilité avec les anciennes versions du menu.
+// Cette fonction ne répare plus de formules : elle recalcule les valeurs Ticket de tous les mois.
 function reparerFormulesTickets() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const ui = SpreadsheetApp.getUi();
   const choix = ui.alert(
-    'Réparer les formules Ticket de tous les mois',
-    'Cette action réinstallera uniquement les formules des colonnes Ticket et leurs protections. Les noms, présences et autres données ne seront pas modifiés. Continuer ?',
+    'Recalculer les tickets de tous les mois',
+    'Cette action recalculera uniquement les valeurs des colonnes Ticket. Les noms et présences ne seront pas modifiés. Continuer ?',
     ui.ButtonSet.YES_NO
   );
   if (choix !== ui.Button.YES) return;
 
   let feuilles = 0;
-  let cellules = 0;
   CAFCO_MOIS.forEach(function(nom) {
     const sh = ss.getSheetByName(nom);
     if (!sh) return;
-    cellules += installerFormulesTicketsPourFeuille_(sh);
+    recalculerTicketsFeuille_(sh);
     protegerFormulesTickets_(sh);
     feuilles++;
   });
 
-  SpreadsheetApp.flush();
-  journaliser_('Réparation formules tickets', feuilles + ' feuille(s), ' + cellules + ' formule(s)');
-  ui.alert('Réparation terminée.\\n\\nMois traités : ' + feuilles + '\\nFormules installées : ' + cellules);
+  journaliser_('Recalcul tickets tous mois', feuilles + ' feuille(s)');
+  ui.alert('Recalcul terminé.\n\nMois traités : ' + feuilles);
 }
 
+// Le nom historique est conservé pour éviter de casser les appels existants.
 function protegerFormulesTickets_(sheet) {
   if (!sheet) throw new Error('Feuille à protéger introuvable.');
   const prefix = 'CAFCO_TICKETS_';
   const protections = sheet.getProtections(SpreadsheetApp.ProtectionType.RANGE);
   const protectionsTickets = {};
+
   protections.forEach(function(p) {
     const description = p.getDescription() || '';
     if (description.indexOf(prefix) !== 0) return;
@@ -426,23 +292,16 @@ function protegerFormulesTickets_(sheet) {
     const existantes = protectionsTickets[description] || [];
     let protection = existantes.shift();
 
-    if (!protection) {
-      protection = range.protect().setDescription(description);
-    } else if (protection.getRange().getA1Notation() !== range.getA1Notation()) {
-      protection.setRange(range);
-    }
+    if (!protection) protection = range.protect().setDescription(description);
+    else if (protection.getRange().getA1Notation() !== range.getA1Notation()) protection.setRange(range);
     if (!protection.isWarningOnly()) protection.setWarningOnly(true);
 
-    existantes.forEach(function(doublon) {
-      if (doublon.canEdit()) doublon.remove();
-    });
+    existantes.forEach(function(doublon) { if (doublon.canEdit()) doublon.remove(); });
     delete protectionsTickets[description];
   });
 
   Object.keys(protectionsTickets).forEach(function(description) {
-    protectionsTickets[description].forEach(function(p) {
-      if (p.canEdit()) p.remove();
-    });
+    protectionsTickets[description].forEach(function(p) { if (p.canEdit()) p.remove(); });
   });
 }
 
@@ -463,7 +322,47 @@ function protegerTicketsMoisExistant() {
 }
 
 function onEdit(e) {
-  // Les Tickets sont désormais calculés par des formules natives Google Sheets.
-  // Aucun recalcul Apps Script n'est nécessaire lors de la saisie quotidienne.
-  return;
+  if (!e || !e.range) return;
+  const range = e.range;
+  const sheet = range.getSheet();
+  if (!estFeuilleMois_(sheet.getName()) || range.getRow() < 2) return;
+
+  const schema = schemaPlanning_(sheet);
+  const colDebut = range.getColumn();
+  const colFin = range.getLastColumn();
+  const ligneDebut = range.getRow();
+  const ligneFin = range.getLastRow();
+
+  const slotsTouches = schema.slots.filter(function(slot) {
+    return (slot.beneCol >= colDebut && slot.beneCol <= colFin) ||
+           (slot.statutCol >= colDebut && slot.statutCol <= colFin);
+  });
+  if (!slotsTouches.length) return;
+
+  // Cas courant : une seule cellule modifiée. On recalcule uniquement la personne et sa semaine.
+  if (range.getNumRows() === 1 && range.getNumColumns() === 1) {
+    const col = range.getColumn();
+    const slot = slotsTouches[0];
+    const noms = [];
+    const nomActuel = String(sheet.getRange(ligneDebut, slot.beneCol).getValue() || '').trim();
+    if (nomActuel) noms.push(nomActuel);
+
+    let ticketAForcerVide = null;
+    if (col === slot.beneCol) {
+      const ancienNom = String(e.oldValue || '').trim();
+      if (ancienNom && noms.indexOf(ancienNom) === -1) noms.push(ancienNom);
+      ticketAForcerVide = slot.ticketCol;
+    }
+
+    recalculerTicketsPersonnesSemaine_(sheet, ligneDebut, noms, ticketAForcerVide);
+    return;
+  }
+
+  // Collage ou modification multiple : on limite le recalcul aux semaines réellement touchées.
+  const semaines = {};
+  for (let row = ligneDebut; row <= ligneFin; row++) {
+    const date = sheet.getRange(row, schema.dateCol).getValue();
+    if (date instanceof Date) semaines[getSemaineCle_(date)] = true;
+  }
+  recalculerTicketsSemaines_(sheet, Object.keys(semaines));
 }
