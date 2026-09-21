@@ -22,9 +22,7 @@ function executerControleQualiteGuide_(afficherAlerte) {
     if (!sh || sh.getLastRow() < 2) return;
     const schema = schemaPlanning_(sh);
     const nbLignes = sh.getLastRow() - 1;
-    const plage = sh.getRange(2, 1, nbLignes, schema.totalCols);
-    const data = plage.getValues();
-    const formules = plage.getFormulas();
+    const data = sh.getRange(2, 1, nbLignes, schema.totalCols).getValues();
 
     data.forEach(function(ligne, indexLigne) {
       const date = ligne[schema.dateCol - 1];
@@ -39,14 +37,21 @@ function executerControleQualiteGuide_(afficherAlerte) {
         const celluleBenevole = colonneA1_(slot.beneCol) + numeroLigne;
         const celluleStatut = colonneA1_(slot.statutCol) + numeroLigne;
         const celluleTicket = colonneA1_(slot.ticketCol) + numeroLigne;
-        const formuleTicket = formules[indexLigne][slot.ticketCol - 1];
 
-        if (!formuleTicket) {
+        if (ticket && ticket !== 'Oui' && ticket !== 'Non') {
           ajouterControleGuide_(resultats, 'Erreur', sh, celluleTicket, date, poste, slot.nom, benevole,
-            'Formule Ticket absente ou remplacée',
-            'Utiliser Maintenance et tests > Réparer les formules Ticket de tous les mois.');
+            'Valeur Ticket invalide : ' + ticket,
+            'Utiliser Contrôle > Recalculer les tickets.');
         }
-        if (!benevole) return;
+
+        if (!benevole) {
+          if (ticket) {
+            ajouterControleGuide_(resultats, 'Erreur', sh, celluleTicket, date, poste, slot.nom, '',
+              'Ticket présent sans bénévole',
+              'Effacer la valeur ou utiliser Contrôle > Recalculer les tickets.');
+          }
+          return;
+        }
 
         if (!benevolesConnus[benevole]) {
           ajouterControleGuide_(resultats, 'Erreur', sh, celluleBenevole, date, poste, slot.nom, benevole,
@@ -58,6 +63,11 @@ function executerControleQualiteGuide_(afficherAlerte) {
           ajouterControleGuide_(resultats, 'Avertissement', sh, celluleStatut, date, poste, slot.nom, benevole,
             'Présence à valider',
             'Choisir Présent, Absent ou Retard dans cette cellule.');
+          if (ticket) {
+            ajouterControleGuide_(resultats, 'Erreur', sh, celluleTicket, date, poste, slot.nom, benevole,
+              'Ticket présent alors que la présence est vide',
+              'Utiliser Contrôle > Recalculer les tickets.');
+          }
         }
 
         if (ticket === 'Oui' && statut !== 'Présent') {
@@ -195,10 +205,7 @@ function compterNiveauxControle_(resultats) {
 
 function mettreEnFormeControleGuide_(controle, nbResultats, initialiserMiseEnPage) {
   const largeur = 9;
-  controle.getRange(1, 1, 1, largeur)
-    .setFontWeight('bold')
-    .setBackground('#d9ead3')
-    .setWrap(true);
+  controle.getRange(1, 1, 1, largeur).setFontWeight('bold').setBackground('#d9ead3').setWrap(true);
   if (initialiserMiseEnPage) {
     controle.setFrozenRows(1);
     controle.setColumnWidth(1, 115);
@@ -212,9 +219,7 @@ function mettreEnFormeControleGuide_(controle, nbResultats, initialiserMiseEnPag
     controle.setColumnWidth(9, 360);
   }
   const nbAnciennesLignes = Math.max(controle.getMaxRows() - 1, 1);
-  controle.getRange(2, 1, nbAnciennesLignes, 1)
-    .setBackground(null)
-    .setFontWeight('normal');
+  controle.getRange(2, 1, nbAnciennesLignes, 1).setBackground(null).setFontWeight('normal');
   if (!nbResultats) return;
   const plage = controle.getRange(2, 1, nbResultats, largeur);
   plage.setVerticalAlignment('top').setWrap(true);
@@ -229,18 +234,12 @@ function mettreEnFormeControleGuide_(controle, nbResultats, initialiserMiseEnPag
 
 function estFeuilleExclueSauvegarde_(nom) {
   const exactes = ['_CHANGELOG', '_DOC_SCRIPT', '_DOC_FORMULES', '_PARAMETRES'];
-  return exactes.indexOf(nom) !== -1 ||
-    nom.indexOf('_TICKETS_') === 0 ||
-    nom.indexOf('_BACKUP_') === 0 ||
-    nom.indexOf('_FORMULES_BACKUP') === 0;
+  return exactes.indexOf(nom) !== -1 || nom.indexOf('_TICKETS_') === 0 || nom.indexOf('_BACKUP_') === 0 || nom.indexOf('_FORMULES_BACKUP') === 0;
 }
 
 function contientErreurFormule_(valeurAffichee) {
   const texte = String(valeurAffichee || '').toUpperCase();
-  const marqueurs = [
-    '#REF!', '#N/A', '#VALUE!', '#VALEUR!', '#DIV/0!', '#NAME?', '#NOM?',
-    '#NUM!', '#NOMBRE!', '#NULL!', '#ERREUR!', '#ERROR!'
-  ];
+  const marqueurs = ['#REF!', '#N/A', '#VALUE!', '#VALEUR!', '#DIV/0!', '#NAME?', '#NOM?', '#NUM!', '#NOMBRE!', '#NULL!', '#ERREUR!', '#ERROR!'];
   return marqueurs.some(function(marqueur) { return texte.indexOf(marqueur) !== -1; });
 }
 
@@ -252,7 +251,6 @@ function sauvegarderFormulesReference() {
   ss.getSheets().forEach(function(sh) {
     const nom = sh.getName();
     if (estFeuilleExclueSauvegarde_(nom)) return;
-
     const range = sh.getDataRange();
     const formulas = range.getFormulas();
     const displays = range.getDisplayValues();
@@ -262,9 +260,7 @@ function sauvegarderFormulesReference() {
         const formule = formulas[r][c];
         if (!formule) continue;
         const cellule = range.getCell(r + 1, c + 1).getA1Notation();
-        if (contientErreurFormule_(displays[r][c])) {
-          erreurs.push(nom + '!' + cellule + ' = ' + displays[r][c]);
-        }
+        if (contientErreurFormule_(displays[r][c])) erreurs.push(nom + '!' + cellule + ' = ' + displays[r][c]);
         sauvegarde.push([nom, cellule, formule]);
       }
     }
@@ -274,29 +270,19 @@ function sauvegarderFormulesReference() {
     const apercu = erreurs.slice(0, 15).join('\n');
     const suite = erreurs.length > 15 ? '\n… et ' + (erreurs.length - 15) + ' autre(s).' : '';
     journaliser_('Sauvegarde formules refusée', erreurs.length + ' formule(s) en erreur');
-    throw new Error(
-      'Sauvegarde refusée : le classeur contient ' + erreurs.length +
-      ' formule(s) en erreur. Corrige-les avant de créer une sauvegarde.\n\n' + apercu + suite
-    );
+    throw new Error('Sauvegarde refusée : le classeur contient ' + erreurs.length + ' formule(s) en erreur.\n\n' + apercu + suite);
   }
 
   const base = '_FORMULES_BACKUP_' + Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyyMMdd_HHmmss');
   let nomBackup = base;
   let suffixe = 2;
-  while (ss.getSheetByName(nomBackup)) {
-    nomBackup = base + '_' + suffixe;
-    suffixe++;
-  }
+  while (ss.getSheetByName(nomBackup)) nomBackup = base + '_' + suffixe++;
 
   const backup = ss.insertSheet(nomBackup);
-  if (backup.getMaxRows() < sauvegarde.length) {
-    backup.insertRowsAfter(backup.getMaxRows(), sauvegarde.length - backup.getMaxRows());
-  }
+  if (backup.getMaxRows() < sauvegarde.length) backup.insertRowsAfter(backup.getMaxRows(), sauvegarde.length - backup.getMaxRows());
   backup.getRange(1, 1, sauvegarde.length, 3).setValues(sauvegarde);
   backup.hideSheet();
-
   journaliser_('Sauvegarde formules', nomBackup + ' : ' + (sauvegarde.length - 1) + ' formule(s)');
-  Logger.log('Sauvegarde créée : ' + nomBackup + ' — ' + (sauvegarde.length - 1) + ' formule(s).');
   return { feuille: nomBackup, formules: sauvegarde.length - 1 };
 }
 
@@ -304,7 +290,7 @@ function reparerToutesLesFormules() {
   journaliser_('Réparation globale bloquée', 'Fonction désactivée pour éviter les #REF!');
   SpreadsheetApp.getUi().alert(
     'Fonction désactivée',
-    'La restauration globale des formules est désactivée pour sécurité. Les tests ont montré qu’elle pouvait générer des erreurs et des #REF!.\n\nUtilise uniquement « Réparer les formules Ticket de tous les mois » pour les colonnes Ticket.',
+    'La restauration globale des formules est désactivée pour sécurité. Pour les tickets, utilise « Recalculer les tickets de tous les mois » : les colonnes Ticket contiennent volontairement des valeurs et non des formules permanentes.',
     SpreadsheetApp.getUi().ButtonSet.OK
   );
 }
@@ -326,6 +312,9 @@ function auditerStructureClasseur() {
     schemaModele.slots.forEach(function(slot) {
       const entete = modele.getRange(1, slot.ticketCol).getDisplayValue();
       if (entete !== 'Ticket') anomalies.push('_MODELE_MOIS : en-tête incorrect en ' + modele.getRange(1, slot.ticketCol).getA1Notation());
+      if (modele.getMaxRows() >= 2 && modele.getRange(2, slot.ticketCol).getBackground().toLowerCase() !== '#ffffff') {
+        anomalies.push('_MODELE_MOIS : la colonne Ticket ' + slot.ticketCol + ' doit rester blanche');
+      }
     });
   }
 
@@ -338,13 +327,12 @@ function auditerStructureClasseur() {
       return;
     }
     schema.slots.forEach(function(slot) {
-      if (sh.getRange(1, slot.ticketCol).getDisplayValue() !== 'Ticket') {
-        anomalies.push(nom + ' : en-tête Ticket incorrect colonne ' + slot.ticketCol);
+      if (sh.getRange(1, slot.ticketCol).getDisplayValue() !== 'Ticket') anomalies.push(nom + ' : en-tête Ticket incorrect colonne ' + slot.ticketCol);
+      if (sh.getMaxRows() >= 2 && sh.getRange(2, slot.ticketCol).getBackground().toLowerCase() !== '#ffffff') {
+        anomalies.push(nom + ' : la colonne Ticket ' + slot.ticketCol + ' doit rester blanche');
       }
     });
-    if (schema.avecJour && sh.getFrozenColumns() < 3) {
-      anomalies.push(nom + ' : les colonnes Jour, Date et Poste ne sont pas toutes figées');
-    }
+    if (schema.avecJour && sh.getFrozenColumns() < 3) anomalies.push(nom + ' : les colonnes Jour, Date et Poste ne sont pas toutes figées');
   });
 
   journaliser_('Audit structure', anomalies.length + ' anomalie(s)');
