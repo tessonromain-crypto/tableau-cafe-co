@@ -50,7 +50,7 @@ function onOpen() {
     .addItem('Lancer le contrôle qualité guidé', 'lancerControleQualiteGuide');
 
   const maintenance = ui.createMenu('Maintenance et tests')
-    .addItem('Réparer les formules Ticket de tous les mois', 'reparerFormulesTickets')
+    .addItem('Recalculer les tickets de tous les mois', 'reparerFormulesTickets')
     .addItem('Protéger les tickets', 'protegerTicketsMoisExistant')
     .addItem('Tester la logique Tickets', 'testerLogiqueTickets')
     .addItem('Auditer la structure', 'auditerStructureClasseur');
