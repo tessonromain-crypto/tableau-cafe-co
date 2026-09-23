@@ -49,6 +49,8 @@ function genererMoisDepuisModele() {
   appliquerCouleursPostes_(cible);
   cible.setFrozenRows(1);
   cible.setFrozenColumns(schemaPlanning_(cible).avecJour ? 3 : 2);
+  cible.showSheet();
+  ss.setActiveSheet(cible);
   recalculerTicketsFeuille_(cible);
   protegerFormulesTickets_(cible);
   SpreadsheetApp.flush();
