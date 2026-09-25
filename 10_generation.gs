@@ -83,14 +83,43 @@ function reinitialiserFeuilleDepuisModele_(cible, modele) {
 function construireLignesMois_(annee, mois, params) {
   const joursNoms = ['Dimanche', 'Lundi', 'Mardi', 'Mercredi', 'Jeudi', 'Vendredi', 'Samedi'];
   const dernierJour = new Date(annee, mois, 0).getDate();
+  const fermetures = lirePeriodesFermeture_();
   const lignes = [];
 
   for (let jour = 1; jour <= dernierJour; jour++) {
     const date = new Date(annee, mois - 1, jour, 12, 0, 0);
     if (params.joursOuvres.indexOf(joursNoms[date.getDay()]) === -1) continue;
+    if (estDateDansFermeture_(date, fermetures)) continue;
     params.postes.forEach(function(poste) { lignes.push([date, poste]); });
   }
   return lignes;
+}
+
+function lirePeriodesFermeture_() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const sh = ss.getSheetByName('_PARAMETRES');
+  if (!sh || sh.getLastRow() < 15) return [];
+
+  const data = sh.getRange(15, 1, sh.getLastRow() - 14, 3).getValues();
+  return data.reduce(function(resultat, ligne) {
+    const type = String(ligne[0] || '').trim().toLowerCase();
+    const debut = ligne[1];
+    const fin = ligne[2];
+    if (type !== 'fermeture' || !(debut instanceof Date)) return resultat;
+
+    const dateDebut = new Date(debut.getFullYear(), debut.getMonth(), debut.getDate(), 12, 0, 0);
+    const dateFinSource = fin instanceof Date ? fin : debut;
+    const dateFin = new Date(dateFinSource.getFullYear(), dateFinSource.getMonth(), dateFinSource.getDate(), 12, 0, 0);
+    resultat.push({ debut: dateDebut, fin: dateFin });
+    return resultat;
+  }, []);
+}
+
+function estDateDansFermeture_(date, fermetures) {
+  const t = new Date(date.getFullYear(), date.getMonth(), date.getDate(), 12, 0, 0).getTime();
+  return (fermetures || []).some(function(periode) {
+    return t >= periode.debut.getTime() && t <= periode.fin.getTime();
+  });
 }
 
 function ajusterNombreLignes_(sheet, nbLignesDonnees, nbPostes) {
