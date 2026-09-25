@@ -114,7 +114,17 @@ function testerLogiqueTickets() {
           r8.planning[1][nouveau.slots[4].ticketCol - 1] === 'Oui',
     'TEST 8 : le format Jour/Date/Poste doit conserver la logique Ticket.');
 
-  Logger.log('Tous les tests Tickets sont OK, y compris le format avec colonne Jour.');
-  SpreadsheetApp.getUi().alert('Tous les tests Tickets sont OK, y compris le format avec colonne Jour.');
+  // 9. Une date comprise dans une période de fermeture doit être exclue.
+  const fermetures = [{
+    debut: new Date(2027, 1, 15, 12, 0, 0),
+    fin: new Date(2027, 1, 19, 12, 0, 0)
+  }];
+  assert_(estDateDansFermeture_(new Date(2027, 1, 17, 12), fermetures) === true,
+    'TEST 9 : une date située dans une fermeture doit être exclue.');
+  assert_(estDateDansFermeture_(new Date(2027, 1, 22, 12), fermetures) === false,
+    'TEST 9 : une date hors fermeture ne doit pas être exclue.');
+
+  Logger.log('Tous les tests Tickets et fermeture sont OK, y compris le format avec colonne Jour.');
+  SpreadsheetApp.getUi().alert('Tous les tests Tickets et fermeture sont OK, y compris le format avec colonne Jour.');
   return 'OK';
 }
