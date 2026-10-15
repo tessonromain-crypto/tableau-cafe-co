@@ -31,8 +31,7 @@ function calculerTickets_(planning, infosBenevoles, schema) {
         ticket = 'Non';
       } else {
         const infos = infosBenevoles[benevole];
-        const eligible = infos && normaliserOui_(infos.souhaiteTicket) &&
-          (infos.statutAutomatique === 'Bénévole' || infos.statutAutomatique === 'Référent');
+        const eligible = estEligibleTicketADate_(infos, date);
 
         if (!eligible) {
           ticket = 'Non';
@@ -74,9 +73,50 @@ function lireInfosBenevoles_() {
   data.forEach(function(l) {
     const nom = String(l[0] || '').trim();
     if (!nom) return;
-    infos[nom] = { souhaiteTicket: l[6], statutAutomatique: l[7] };
+    infos[nom] = {
+      statutManuel: l[1],
+      dateEntree: l[2],
+      dateTitularisation: l[3],
+      dateSortie: l[4],
+      referent: l[5],
+      souhaiteTicket: l[6],
+      statutAutomatique: l[7],
+      disponiblePlanning: l[8]
+    };
   });
   return infos;
+}
+
+function normaliserDateTicket_(valeur) {
+  if (!(valeur instanceof Date) || isNaN(valeur.getTime())) return null;
+  return new Date(valeur.getFullYear(), valeur.getMonth(), valeur.getDate(), 12, 0, 0);
+}
+
+// Éligibilité historique : on juge la personne à la date du créneau,
+// pas avec son seul statut actuel.
+function estEligibleTicketADate_(infos, date) {
+  if (!infos || !(date instanceof Date) || !normaliserOui_(infos.souhaiteTicket)) return false;
+
+  const jour = normaliserDateTicket_(date);
+  const entree = normaliserDateTicket_(infos.dateEntree);
+  const titularisation = normaliserDateTicket_(infos.dateTitularisation);
+  const sortie = normaliserDateTicket_(infos.dateSortie);
+  if (!jour) return false;
+
+  // La titularisation datée est la source prioritaire.
+  if (titularisation) {
+    if (jour.getTime() < titularisation.getTime()) return false;
+  } else {
+    // Compatibilité avec les anciennes fiches sans date exploitable :
+    // on conserve la logique du statut actuel, sans autoriser une date avant l'entrée.
+    if (infos.statutAutomatique !== 'Bénévole' && infos.statutAutomatique !== 'Référent') return false;
+    if (entree && jour.getTime() < entree.getTime()) return false;
+  }
+
+  // La date de sortie est considérée comme le dernier jour encore éligible.
+  if (sortie && jour.getTime() > sortie.getTime()) return false;
+
+  return true;
 }
 
 function ecrireTicketsCalcules_(sheet, calcul, schema, rowOffset) {
@@ -195,8 +235,7 @@ function recalculerTicketsPersonnesSemaine_(sheet, ligneEditee, noms, ticketColA
         ticket = 'Non';
       } else {
         const infos = infosBenevoles[benevole];
-        const eligible = infos && normaliserOui_(infos.souhaiteTicket) &&
-          (infos.statutAutomatique === 'Bénévole' || infos.statutAutomatique === 'Référent');
+        const eligible = estEligibleTicketADate_(infos, date);
         if (!eligible) {
           ticket = 'Non';
         } else {
@@ -321,10 +360,123 @@ function protegerTicketsMoisExistant() {
   ui.alert('Colonnes Ticket protégées contre les modifications accidentelles.');
 }
 
+// Recalcule uniquement les tickets des personnes demandées sur les mois existants.
+// Chaque feuille n'est lue qu'une fois et seules les cellules réellement différentes sont écrites.
+function recalculerTicketsPersonnesHistorique_(noms) {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const infos = lireInfosBenevoles_();
+  const cibles = {};
+  (noms || []).forEach(function(nom) {
+    nom = String(nom || '').trim();
+    if (nom) cibles[nom] = true;
+  });
+  const liste = Object.keys(cibles);
+  if (!liste.length) return { personnes: 0, cellules: 0, mois: 0 };
+
+  let cellules = 0;
+  let mois = 0;
+
+  CAFCO_MOIS.forEach(function(nomMois) {
+    const sheet = ss.getSheetByName(nomMois);
+    if (!sheet || sheet.getLastRow() < 2) return;
+
+    const schema = schemaPlanning_(sheet);
+    const nbLignes = sheet.getLastRow() - 1;
+    const planning = sheet.getRange(2, 1, nbLignes, schema.totalCols).getValues();
+    const calcul = calculerTickets_(planning, infos, schema);
+    const adresses = { Oui: [], Non: [], Vide: [] };
+
+    for (let r = 0; r < planning.length; r++) {
+      schema.slots.forEach(function(slot) {
+        const benevole = String(planning[r][slot.beneCol - 1] || '').trim();
+        if (!cibles[benevole]) return;
+
+        const actuel = String(planning[r][slot.ticketCol - 1] || '').trim();
+        const attendu = String(calcul.planning[r][slot.ticketCol - 1] || '').trim();
+        if (actuel === attendu) return;
+
+        const adresse = colonneA1_(slot.ticketCol) + (r + 2);
+        if (attendu === 'Oui') adresses.Oui.push(adresse);
+        else if (attendu === 'Non') adresses.Non.push(adresse);
+        else adresses.Vide.push(adresse);
+      });
+    }
+
+    ecrireRangeListParLots_(sheet, adresses.Oui, 'Oui');
+    ecrireRangeListParLots_(sheet, adresses.Non, 'Non');
+    ecrireRangeListParLots_(sheet, adresses.Vide, '');
+    const nbModifs = adresses.Oui.length + adresses.Non.length + adresses.Vide.length;
+    if (nbModifs) {
+      cellules += nbModifs;
+      mois++;
+    }
+  });
+
+  SpreadsheetApp.flush();
+  return { personnes: liste.length, cellules: cellules, mois: mois };
+}
+
+function ecrireRangeListParLots_(sheet, adresses, valeur) {
+  const tailleLot = 100;
+  for (let i = 0; i < adresses.length; i += tailleLot) {
+    sheet.getRangeList(adresses.slice(i, i + tailleLot)).setValue(valeur);
+  }
+}
+
+function gererEditionBenevolesTickets_(e) {
+  const range = e.range;
+  if (range.getRow() < 2) return;
+
+  // Colonnes pouvant modifier l'éligibilité historique :
+  // B statut manuel, C entrée, D titularisation, E sortie,
+  // F référent, G souhaite ticket, H statut automatique.
+  const colDebut = range.getColumn();
+  const colFin = range.getLastColumn();
+  const toucheEligibilite = !(colFin < 2 || colDebut > 8);
+  if (!toucheEligibilite) return;
+
+  const sheet = range.getSheet();
+  const ligneDebut = range.getRow();
+  const ligneFin = range.getLastRow();
+  const noms = sheet.getRange(ligneDebut, 1, ligneFin - ligneDebut + 1, 1).getDisplayValues()
+    .map(function(ligne) { return String(ligne[0] || '').trim(); })
+    .filter(Boolean);
+  if (!noms.length) return;
+
+  const resultat = recalculerTicketsPersonnesHistorique_(noms);
+  journaliser_(
+    'Recalcul ciblé après BENEVOLES',
+    noms.join(', ') + ' : ' + resultat.cellules + ' ticket(s) modifié(s) sur ' + resultat.mois + ' mois'
+  );
+}
+
+function recalculerTicketsBenevoleManuel() {
+  const ui = SpreadsheetApp.getUi();
+  const rep = ui.prompt(
+    'Recalculer un bénévole',
+    'Indique exactement le nom du bénévole tel qu’il apparaît dans BENEVOLES.',
+    ui.ButtonSet.OK_CANCEL
+  );
+  if (rep.getSelectedButton() !== ui.Button.OK) return;
+
+  const nom = rep.getResponseText().trim();
+  if (!nom) return;
+
+  const resultat = recalculerTicketsPersonnesHistorique_([nom]);
+  journaliser_('Recalcul bénévole manuel', nom + ' : ' + resultat.cellules + ' ticket(s) modifié(s)');
+  ui.alert(nom + ' : ' + resultat.cellules + ' ticket(s) mis à jour sur ' + resultat.mois + ' mois.');
+}
+
 function onEdit(e) {
   if (!e || !e.range) return;
   const range = e.range;
   const sheet = range.getSheet();
+
+  if (sheet.getName() === 'BENEVOLES') {
+    gererEditionBenevolesTickets_(e);
+    return;
+  }
+
   if (!estFeuilleMois_(sheet.getName()) || range.getRow() < 2) return;
 
   const schema = schemaPlanning_(sheet);
