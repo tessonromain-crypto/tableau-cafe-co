@@ -124,7 +124,79 @@ function testerLogiqueTickets() {
   assert_(estDateDansFermeture_(new Date(2027, 1, 22, 12), fermetures) === false,
     'TEST 9 : une date hors fermeture ne doit pas être exclue.');
 
-  Logger.log('Tous les tests Tickets et fermeture sont OK, y compris le format avec colonne Jour.');
-  SpreadsheetApp.getUi().alert('Tous les tests Tickets et fermeture sont OK, y compris le format avec colonne Jour.');
+  // 10. Avant titularisation = Non ; à partir de la titularisation = Oui.
+  const infosHistorique = {
+    historique: {
+      dateEntree: new Date(2026, 5, 1, 12),
+      dateTitularisation: new Date(2026, 8, 1, 12),
+      dateSortie: '',
+      souhaiteTicket: 'Oui',
+      statutAutomatique: 'Référent'
+    }
+  };
+  const r10 = calculerTickets_([
+    ligne(new Date(2026, 7, 31, 12), 'historique', 'Présent', 0, ancien),
+    ligne(new Date(2026, 8, 1, 12), 'historique', 'Présent', 0, ancien)
+  ], infosHistorique, ancien);
+  assert_(r10.planning[0][4] === 'Non' && r10.planning[1][4] === 'Oui',
+    'TEST 10 : la titularisation doit prendre effet à sa date, sans rétroactivité.');
+
+  // 11. Un statut actuel Bénévole ne rend pas éligible avant la date de titularisation.
+  const infosTitFuture = {
+    futur: {
+      dateEntree: new Date(2026, 4, 1, 12),
+      dateTitularisation: new Date(2026, 9, 1, 12),
+      dateSortie: '',
+      souhaiteTicket: 'Oui',
+      statutAutomatique: 'Bénévole'
+    }
+  };
+  const r11 = calculerTickets_([
+    ligne(new Date(2026, 8, 15, 12), 'futur', 'Présent', 0, ancien),
+    ligne(new Date(2026, 9, 1, 12), 'futur', 'Présent', 0, ancien)
+  ], infosTitFuture, ancien);
+  assert_(r11.planning[0][4] === 'Non' && r11.planning[1][4] === 'Oui',
+    'TEST 11 : le statut actuel ne doit pas antidater l’éligibilité.');
+
+  // 12. Une sortie ultérieure ne supprime pas les tickets acquis avant la sortie.
+  const infosSorti = {
+    sorti: {
+      dateEntree: new Date(2026, 4, 1, 12),
+      dateTitularisation: new Date(2026, 5, 1, 12),
+      dateSortie: new Date(2026, 9, 9, 12),
+      souhaiteTicket: 'Oui',
+      statutAutomatique: 'Sorti'
+    }
+  };
+  const r12 = calculerTickets_([
+    ligne(new Date(2026, 8, 20, 12), 'sorti', 'Présent', 0, ancien),
+    ligne(new Date(2026, 9, 9, 12), 'sorti', 'Présent', 0, ancien),
+    ligne(new Date(2026, 9, 10, 12), 'sorti', 'Présent', 0, ancien)
+  ], infosSorti, ancien);
+  assert_(r12.planning[0][4] === 'Oui' && r12.planning[1][4] === 'Oui' && r12.planning[2][4] === 'Non',
+    'TEST 12 : les tickets avant/au jour de sortie restent valides, après sortie = Non.');
+
+  // 13. Cas Malik : cinq présences réparties sur plusieurs semaines en septembre = cinq Oui.
+  const infosMalik = {
+    Malik: {
+      dateEntree: new Date(2026, 5, 8, 12),
+      dateTitularisation: new Date(2026, 8, 1, 12),
+      dateSortie: '',
+      souhaiteTicket: 'Oui',
+      statutAutomatique: 'Référent'
+    }
+  };
+  const r13 = calculerTickets_([
+    ligne(new Date(2026, 8, 2, 12), 'Malik', 'Présent', 0, ancien),
+    ligne(new Date(2026, 8, 4, 12), 'Malik', 'Présent', 0, ancien),
+    ligne(new Date(2026, 8, 16, 12), 'Malik', 'Présent', 0, ancien),
+    ligne(new Date(2026, 8, 23, 12), 'Malik', 'Présent', 0, ancien),
+    ligne(new Date(2026, 8, 30, 12), 'Malik', 'Présent', 0, ancien)
+  ], infosMalik, ancien);
+  assert_(r13.planning.filter(function(l) { return l[4] === 'Oui'; }).length === 5,
+    'TEST 13 : Malik doit obtenir cinq tickets en septembre.');
+
+  Logger.log('Tous les tests Tickets, historique et fermeture sont OK.');
+  SpreadsheetApp.getUi().alert('Tous les tests Tickets, historique et fermeture sont OK.');
   return 'OK';
 }
