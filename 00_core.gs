@@ -50,6 +50,7 @@ function onOpen() {
     .addItem('Lancer le contrôle qualité guidé', 'lancerControleQualiteGuide');
 
   const maintenance = ui.createMenu('Maintenance et tests')
+    .addItem('Recalculer les tickets d’un bénévole', 'recalculerTicketsBenevoleManuel')
     .addItem('Recalculer les tickets de tous les mois', 'reparerFormulesTickets')
     .addItem('Protéger les tickets', 'protegerTicketsMoisExistant')
     .addItem('Tester la logique Tickets', 'testerLogiqueTickets')
