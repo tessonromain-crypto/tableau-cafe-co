@@ -16,6 +16,7 @@ function executerControleQualiteGuide_(afficherAlerte) {
   const ticketsParSemaine = {};
   const creneaux = {};
   const benevolesConnus = chargerNomsBenevoles_(ss);
+  const infosBenevoles = lireInfosBenevoles_();
 
   CAFCO_MOIS.forEach(function(nomMois) {
     const sh = ss.getSheetByName(nomMois);
@@ -23,6 +24,7 @@ function executerControleQualiteGuide_(afficherAlerte) {
     const schema = schemaPlanning_(sh);
     const nbLignes = sh.getLastRow() - 1;
     const data = sh.getRange(2, 1, nbLignes, schema.totalCols).getValues();
+    const attendu = calculerTickets_(data, infosBenevoles, schema).planning;
 
     data.forEach(function(ligne, indexLigne) {
       const date = ligne[schema.dateCol - 1];
@@ -42,6 +44,13 @@ function executerControleQualiteGuide_(afficherAlerte) {
           ajouterControleGuide_(resultats, 'Erreur', sh, celluleTicket, date, poste, slot.nom, benevole,
             'Valeur Ticket invalide : ' + ticket,
             'Utiliser Contrôle > Recalculer les tickets.');
+        }
+
+        const ticketAttendu = String(attendu[indexLigne][slot.ticketCol - 1] || '').trim();
+        if (ticket !== ticketAttendu) {
+          ajouterControleGuide_(resultats, 'Erreur', sh, celluleTicket, date, poste, slot.nom, benevole,
+            'Ticket incohérent avec l’historique : « ' + (ticket || 'vide') + ' » au lieu de « ' + (ticketAttendu || 'vide') + ' »',
+            'Utiliser Maintenance et tests > Recalculer les tickets d’un bénévole.');
         }
 
         if (!benevole) {
